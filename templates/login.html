@@ -3,19 +3,26 @@
 {% block content %}
 <section class="form-card card">
     <h1>Login</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-list">
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
     <form method="POST" class="form-layout">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" required>
 
         <label for="password">Password</label>
-        <input type="password" id="password" name="password">
+        <input type="password" id="password" name="password" required>
 
         <button class="btn" type="submit">Login</button>
     </form>
-
-    <p class="muted-text">
-        No real authentication yet. This is currently a placeholder login flow.
-    </p>
 
     <p>
         No account yet? <a href="{{ url_for('register') }}">Register here</a>
