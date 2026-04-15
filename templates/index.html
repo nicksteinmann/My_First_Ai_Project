@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Pen & Paper</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 16px;
+        }
+
+        #chat {
+            border: 1px solid #ccc;
+            min-height: 300px;
+            padding: 12px;
+            margin-bottom: 12px;
+            overflow-y: auto;
+        }
+
+        .row {
+            margin-bottom: 12px;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+        }
+
+        select, button {
+            padding: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Pen & Paper</h1>
+
+    <div class="row">
+        <label for="providerSelect">Modell wählen:</label>
+        <select id="providerSelect"></select>
+        <span id="providerStatus" class="status"></span>
+    </div>
+
+    <div id="chat"></div>
+
+    <div class="row">
+        <textarea id="input" placeholder="Deine Aktion..."></textarea>
+    </div>
+
+    <div class="row">
+        <button onclick="sendMessage()">Senden</button>
+    </div>
+
+    <script>
+        async function loadProviders() {
+            const select = document.getElementById("providerSelect");
+            const status = document.getElementById("providerStatus");
+
+            select.innerHTML = "";
+
+            try {
+                const res = await fetch("/api/providers");
+                const data = await res.json();
+
+                const providers = data.providers || [];
+
+                providers.forEach(p => {
+                    const option = document.createElement("option");
+                    option.value = p.provider;
+
+                    if (p.available) {
+                        option.textContent = `${p.provider} verfügbar`;
+                    } else {
+                        option.textContent = `${p.provider} nicht verfügbar`;
+                    }
+
+                    option.disabled = !p.available;
+                    select.appendChild(option);
+                });
+
+                // Fallback: DeepSeek bevorzugen, sonst erstes verfügbares Modell
+                const deepseekOption = [...select.options].find(o => o.value === "deepseek" && !o.disabled);
+                if (deepseekOption) {
+                    select.value = "deepseek";
+                } else {
+                    const firstAvailable = [...select.options].find(o => !o.disabled);
+                    if (firstAvailable) {
+                        select.value = firstAvailable.value;
+                    }
+                }
+
+                updateProviderStatus(providers, select.value);
+
+                select.addEventListener("change", () => {
+                    updateProviderStatus(providers, select.value);
+                });
+
+            } catch (err) {
+                status.textContent = "Provider-Status konnte nicht geladen werden.";
+            }
+        }
+
+        function updateProviderStatus(providers, selectedValue) {
+            const status = document.getElementById("providerStatus");
+            const selected = providers.find(p => p.provider === selectedValue);
+
+            if (!selected) {
+                status.textContent = "Kein Provider ausgewählt.";
+                return;
+            }
+
+            if (selected.available) {
+                status.textContent = `${selected.provider} ist verfügbar.`;
+            } else {
+                status.textContent = `${selected.provider} ist nicht verfügbar: ${selected.reason}`;
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById("input");
+            const chat = document.getElementById("chat");
+            const provider = document.getElementById("providerSelect").value;
+            const text = input.value.trim();
+
+            if (!text) return;
+
+            chat.innerHTML += `<p><b>Du:</b> ${text}</p>`;
+
+            try {
+                const res = await fetch("/api/game", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: text,
+                        provider: provider
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    chat.innerHTML += `<p><b>System:</b> Fehler: ${data.error || "Unbekannter Fehler"} ${data.details ? "- " + data.details : ""}</p>`;
+                    return;
+                }
+
+                chat.innerHTML += `<p><b>${data.provider}:</b> ${data.response}</p>`;
+                input.value = "";
+            } catch (err) {
+                chat.innerHTML += `<p><b>System:</b> Verbindungsfehler.</p>`;
+            }
+        }
+
+        loadProviders();
+    </script>
+</body>
+</html>
