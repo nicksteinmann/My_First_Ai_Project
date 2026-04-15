@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="form-card card">
+    <h1>Register</h1>
+    <form method="POST" class="form-layout">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required>
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+
+        <button class="btn" type="submit">Create Account</button>
+    </form>
+
+    <p>
+        Already have an account? <a href="{{ url_for('login') }}">Login here</a>
+    </p>
+</section>
+{% endblock %}

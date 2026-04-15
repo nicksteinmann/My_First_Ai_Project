@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="form-card card">
+    <h1>Login</h1>
+    <form method="POST" class="form-layout">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password">
+
+        <button class="btn" type="submit">Login</button>
+    </form>
+
+    <p class="muted-text">
+        No real authentication yet. This is currently a placeholder login flow.
+    </p>
+
+    <p>
+        No account yet? <a href="{{ url_for('register') }}">Register here</a>
+    </p>
+</section>
+{% endblock %}

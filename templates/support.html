@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <h1>Support & FAQ</h1>
+    <p class="muted-text">General information about the prototype.</p>
+</section>
+
+<section class="faq-list">
+    {% for item in faq_items %}
+        <article class="card">
+            <h2>{{ item.question }}</h2>
+            <p>{{ item.answer }}</p>
+        </article>
+    {% endfor %}
+</section>
+{% endblock %}

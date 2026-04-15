@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <h1>{{ world.name }}</h1>
+    <p class="muted-text">{{ world.era }} · Year {{ world.year }}</p>
+</section>
+
+<section class="card">
+    <h2>World Summary</h2>
+    <p>{{ world.summary }}</p>
+</section>
+
+<section class="card">
+    <h2>Known Locations</h2>
+    <ul class="simple-list">
+        {% for location in world.locations %}
+            <li>{{ location }}</li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}
