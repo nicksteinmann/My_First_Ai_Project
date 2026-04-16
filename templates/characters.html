@@ -6,85 +6,156 @@
     <p class="muted-text">Manage your heroes, campaigns, and progress.</p>
 </section>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-list">
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<section class="card">
+    <div class="section-header">
+        <h2>Create Character</h2>
+    </div>
+
+    <form method="POST" action="{{ url_for('create_character') }}" class="form-layout">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+
+        <label for="race">Race</label>
+        <select id="race" name="race" required>
+            <option value="">Select a race</option>
+            {% for race_key, race_data in races.items() %}
+                <option value="{{ race_key }}">{{ race_data.label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="class_name">Class</label>
+        <select id="class_name" name="class_name" required>
+            <option value="">Select a class</option>
+            {% for class_key, class_data in classes.items() %}
+                <option value="{{ class_key }}">{{ class_data.label }}</option>
+            {% endfor %}
+        </select>
+
+        <button class="btn" type="submit">Create Character</button>
+    </form>
+</section>
+
 <section class="card">
     <div class="section-header">
         <h2>Character List</h2>
-        <button class="btn">Create Character</button>
     </div>
 
-    <div class="character-list">
-        {% for character in characters %}
-            <article class="card character-entry compact-entry">
+    {% if not characters %}
+        <section class="card">
+            <p>No characters found yet. Create your first character above.</p>
+        </section>
+    {% else %}
+        <div class="character-list">
+            {% for character in characters %}
+                <article class="card character-entry compact-entry">
 
-                <div class="character-entry-left">
-                    <div class="character-portrait">👤</div>
+                    <div class="character-entry-left">
+                        <div class="character-portrait">👤</div>
 
-                    <div class="character-meta">
-                        <h2>{{ character.name }}</h2>
-                        <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
-                        <p><strong>Level:</strong> {{ character.level }}</p>
-                        <p><strong>Status:</strong> {{ character.status }}</p>
-                        <p><strong>Gold:</strong> 245</p>
+                        <div class="character-meta">
+                            <h2>
+                                {{ character.name }}
+                                {% if character.is_active %}
+                                    <span class="skill-chip">Active</span>
+                                {% endif %}
+                            </h2>
+                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
+                            <p><strong>Level:</strong> {{ character.level }}</p>
+                            <p><strong>Status:</strong> {{ character.status }}</p>
+                            <p><strong>Gold:</strong> {{ character.gold }}</p>
 
-                        <div class="entry-actions">
-                            <button class="btn btn-small">Open</button>
-                            <button class="btn btn-secondary btn-small">Edit</button>
-                            <button class="btn btn-danger btn-small">Delete</button>
-                        </div>
-                    </div>
-                </div>
+                            <div class="entry-actions">
+                                <form method="POST" action="{{ url_for('select_character', character_id=character.id) }}">
+                                    <button class="btn btn-small" type="submit">Open</button>
+                                </form>
 
-                <div class="character-entry-middle compact-stats">
-                    <h3 class="compact-panel-title">Stats</h3>
+                                <button class="btn btn-secondary btn-small" type="button" disabled>Edit</button>
 
-                    <div class="stat-block">
-                        <div class="stat-row">
-                            <span>❤️ HP</span>
-                            <span>{{ character.hp }}/140</span>
-                        </div>
-                        <div class="bar">
-                            <div class="bar-fill hp-fill" style="width: {{ (character.hp / 140 * 100) | int }}%"></div>
-                        </div>
-                    </div>
-
-                    <div class="stat-block">
-                        <div class="stat-row">
-                            <span>🔮 Mana</span>
-                            <span>30/50</span>
-                        </div>
-                        <div class="bar">
-                            <div class="bar-fill mana-fill" style="width: 60%"></div>
+                                <form method="POST" action="{{ url_for('delete_character', character_id=character.id) }}" onsubmit="return confirm('Delete this character?');">
+                                    <button class="btn btn-danger btn-small" type="submit">Delete</button>
+                                </form>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="stat-block">
-                        <div class="stat-row">
-                            <span>⚡ Energy</span>
-                            <span>{{ character.energy }}/100</span>
+                    <div class="character-entry-middle compact-stats">
+                        <h3 class="compact-panel-title">Stats</h3>
+
+                        <div class="stat-block">
+                            <div class="stat-row">
+                                <span>❤️ HP</span>
+                                <span>{{ character.hp }}/{{ character.max_hp }}</span>
+                            </div>
+                            <div class="bar">
+                                <div class="bar-fill hp-fill" style="width: {{ ((character.hp / character.max_hp) * 100) | int if character.max_hp > 0 else 0 }}%"></div>
+                            </div>
                         </div>
-                        <div class="bar">
-                            <div class="bar-fill energy-fill" style="width: {{ character.energy }}%"></div>
+
+                        <div class="stat-block">
+                            <div class="stat-row">
+                                <span>🔮 Mana</span>
+                                <span>{{ character.mana }}/{{ character.max_mana }}</span>
+                            </div>
+                            <div class="bar">
+                                <div class="bar-fill mana-fill" style="width: {{ ((character.mana / character.max_mana) * 100) | int if character.max_mana > 0 else 0 }}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="stat-block">
+                            <div class="stat-row">
+                                <span>⚡ Energy</span>
+                                <span>{{ character.energy }}/{{ character.max_energy }}</span>
+                            </div>
+                            <div class="bar">
+                                <div class="bar-fill energy-fill" style="width: {{ ((character.energy / character.max_energy) * 100) | int if character.max_energy > 0 else 0 }}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="skill-chip-row">
+                            <span class="skill-chip">⚔️ {{ character.skill_1 }}</span>
+                            <span class="skill-chip">🛡️ {{ character.skill_2 }}</span>
+                            <span class="skill-chip">🎯 {{ character.skill_3 }}</span>
+                            <span class="skill-chip">🗝️ {{ character.skill_4 }}</span>
                         </div>
                     </div>
 
-                    <div class="skill-chip-row">
-                        <span class="skill-chip">⚔️ 7</span>
-                        <span class="skill-chip">🛡️ 6</span>
-                        <span class="skill-chip">🎯 2</span>
-                        <span class="skill-chip">🗝️ 1</span>
-                    </div>
-                </div>
+                    <div class="character-entry-right state-info">
+                        <h3>Adventure State</h3>
+                        <p><strong>📍 Location:</strong> {{ character.location }}</p>
+                        <p><strong>🕒 Time:</strong> {{ character.time }}</p>
+                        <p><strong>📜 Quest:</strong> {{ character.quest }}</p>
+                        <p><strong>✅ Quests:</strong> {{ character.completed_quests }}</p>
+                        <p><strong>🎮 Campaigns:</strong> {{ character.campaigns }}</p>
 
-                <div class="character-entry-right state-info">
-                    <h3>Adventure State</h3>
-                    <p><strong>📍 Location:</strong> Ravenhold</p>
-                    <p><strong>🕒 Time:</strong> Evening</p>
-                    <p><strong>📜 Quest:</strong> Find the missing blacksmith</p>
-                    <p><strong>✅ Quests:</strong> 3</p>
-                    <p><strong>🎮 Campaigns:</strong> 1</p>
-                </div>
-            </article>
-        {% endfor %}
-    </div>
+                        <hr class="divider">
+
+                        <h4>Equipment</h4>
+                        <ul class="simple-list">
+                            {% for item in character.equipment %}
+                                <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+
+                        <h4>Inventory</h4>
+                        <ul class="simple-list">
+                            {% for item in character.inventory %}
+                                <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </article>
+            {% endfor %}
+        </div>
+    {% endif %}
 </section>
 {% endblock %}

@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from models import db, User, UserProfile
+from models import db, User, UserProfile, Character, CharacterAttribute, CharacterResource
 from services.llm_service import ask_llm, check_provider_availability
+from data.character_presets import RACES, CLASSES
 
 
 def create_app():
@@ -29,56 +30,83 @@ def create_app():
         user_id = session.get("user_id")
         if not user_id:
             return None
-        return User.query.get(user_id)
+        return db.session.get(User, user_id)
 
-    def get_active_character():
-        """
-        Platzhalterdaten.
-        Später durch echte DB-Abfrage ersetzen.
-        """
-        if not is_logged_in():
-            return None
+    def get_user_characters(user_id):
+        return Character.query.filter_by(user_id=user_id).order_by(Character.created_at.asc()).all()
+
+    def get_character_by_id_for_user(character_id, user_id):
+        return Character.query.filter_by(id=character_id, user_id=user_id).first()
+
+    def serialize_character(character):
+        resources = character.resources
+
+        hp_current = resources.hp_current if resources else 0
+        hp_max = resources.hp_max if resources else 0
+        mana_current = resources.mana_current if resources else 0
+        mana_max = resources.mana_max if resources else 0
+        energy_current = resources.energy_current if resources else 0
+        energy_max = resources.energy_max if resources else 0
 
         return {
-            "id": 1,
-            "name": "Wolfram der Türbrecher",
-            "race": "Mensch",
-            "class_name": "Ritter",
-            "level": 7,
-            "status": "alive",
+            "id": character.id,
+            "name": character.name,
+            "race": character.race,
+            "class_name": character.class_name,
+            "level": character.level,
+            "status": character.status,
+            "gold": character.gold,
             "portrait": "👤",
             "stats": {
-                "hp": 120,
-                "hp_max": 140,
-                "mana": 30,
-                "mana_max": 50,
-                "energy": 80,
-                "energy_max": 100,
-                "gold": 245
+                "hp": hp_current,
+                "hp_max": hp_max,
+                "mana": mana_current,
+                "mana_max": mana_max,
+                "energy": energy_current,
+                "energy_max": energy_max,
+                "gold": character.gold
             },
             "skills": [
-                {"icon": "⚔️", "name": "Sword", "level": 7},
-                {"icon": "🛡️", "name": "Shield", "level": 6},
-                {"icon": "🎯", "name": "Bow", "level": 2},
+                {"icon": "⚔️", "name": "Sword", "level": 1},
+                {"icon": "🛡️", "name": "Shield", "level": 1},
+                {"icon": "🎯", "name": "Bow", "level": 1},
                 {"icon": "🗝️", "name": "Lockpick", "level": 1},
             ],
             "current_state": {
                 "location": "Ravenhold",
                 "time_of_day": "Evening",
-                "active_quest": "Find the missing blacksmith"
+                "active_quest": "No active quest"
             },
             "equipment": [
-                "Iron Sword",
-                "Knight Shield",
-                "Steel Chestplate"
+                "Starter Weapon",
+                "Basic Armor"
             ],
             "inventory": [
-                "Health Potion",
                 "Torch",
-                "Rope",
-                "Old Key"
+                "Bread"
             ]
         }
+
+    def get_active_character():
+        if not is_logged_in():
+            return None
+
+        user_id = session.get("user_id")
+        active_character_id = session.get("active_character_id")
+
+        if active_character_id:
+            selected_character = get_character_by_id_for_user(active_character_id, user_id)
+            if selected_character:
+                return serialize_character(selected_character)
+
+        characters = get_user_characters(user_id)
+
+        if not characters:
+            return None
+
+        first_character = characters[0]
+        session["active_character_id"] = first_character.id
+        return serialize_character(first_character)
 
     @app.route("/")
     def index():
@@ -86,14 +114,20 @@ def create_app():
             return render_template("index.html", page_title="Home", logged_in=False)
 
         current_user = get_current_user()
+
+        if not current_user:
+            session.clear()
+            flash("Your session has expired. Please log in again.", "error")
+            return redirect(url_for("login"))
+
         active_character = get_active_character()
 
         return render_template(
-            "index.html",
+        "index.html",
             page_title="Home",
             logged_in=True,
             active_character=active_character,
-            username=current_user.username if current_user else session.get("username")
+            username=current_user.username
         )
 
     @app.route("/login", methods=["GET", "POST"])
@@ -119,6 +153,7 @@ def create_app():
 
                 session["user_id"] = user.id
                 session["username"] = user.username
+                session.pop("active_character_id", None)
 
                 return redirect(url_for("index"))
 
@@ -190,34 +225,197 @@ def create_app():
         if not is_logged_in():
             return redirect(url_for("login"))
 
-        character_list = [
-            {
-                "id": 1,
-                "name": "Wolfram der Türbrecher",
-                "race": "Mensch",
-                "class_name": "Ritter",
-                "level": 7,
-                "status": "alive",
-                "hp": 120,
-                "energy": 80
-            },
-            {
-                "id": 2,
-                "name": "Theodor von Sturmbart",
-                "race": "Zwerg",
-                "class_name": "Krieger",
-                "level": 4,
-                "status": "retired",
-                "hp": 95,
-                "energy": 60
-            }
-        ]
+        user_id = session.get("user_id")
+        active_character_id = session.get("active_character_id")
+        db_characters = get_user_characters(user_id)
+
+        characters = []
+        for character in db_characters:
+            resources = character.resources
+
+            characters.append({
+                "id": character.id,
+                "name": character.name,
+                "race": character.race,
+                "class_name": character.class_name,
+                "level": character.level,
+                "status": character.status,
+                "gold": character.gold,
+                "is_active": character.id == active_character_id,
+                "hp": resources.hp_current if resources else 0,
+                "max_hp": resources.hp_max if resources else 0,
+                "mana": resources.mana_current if resources else 0,
+                "max_mana": resources.mana_max if resources else 0,
+                "energy": resources.energy_current if resources else 0,
+                "max_energy": resources.energy_max if resources else 0,
+                "location": "Ravenhold",
+                "time": "Evening",
+                "quest": "No active quest",
+                "completed_quests": 0,
+                "campaigns": 0,
+                "equipment": ["Starter Weapon", "Basic Armor"],
+                "inventory": ["Torch", "Bread"],
+                "skill_1": 1,
+                "skill_2": 1,
+                "skill_3": 1,
+                "skill_4": 1
+            })
 
         return render_template(
             "characters.html",
             page_title="My Characters",
-            characters=character_list
+            characters=characters,
+            races=RACES,
+            classes=CLASSES
         )
+
+    @app.route("/characters/create", methods=["POST"])
+    def create_character():
+        if not is_logged_in():
+            return redirect(url_for("login"))
+
+        user_id = session.get("user_id")
+
+        name = request.form.get("name", "").strip()
+        race = request.form.get("race", "").strip()
+        class_name = request.form.get("class_name", "").strip()
+
+        if not name or not race or not class_name:
+            flash("Please fill in all character fields.", "error")
+            return redirect(url_for("characters"))
+
+        if race not in RACES:
+            flash("Invalid race selected.", "error")
+            return redirect(url_for("characters"))
+
+        if class_name not in CLASSES:
+            flash("Invalid class selected.", "error")
+            return redirect(url_for("characters"))
+
+        base_attributes = {
+            "strength": 5,
+            "dexterity": 5,
+            "constitution": 5,
+            "intelligence": 5,
+            "perception": 5,
+            "charisma": 5
+        }
+
+        race_bonus = RACES[race]["bonuses"]
+        class_bonus = CLASSES[class_name]["bonuses"]
+
+        final_strength = base_attributes["strength"] + race_bonus["strength"] + class_bonus["strength"]
+        final_dexterity = base_attributes["dexterity"] + race_bonus["dexterity"] + class_bonus["dexterity"]
+        final_constitution = base_attributes["constitution"] + race_bonus["constitution"] + class_bonus["constitution"]
+        final_intelligence = base_attributes["intelligence"] + race_bonus["intelligence"] + class_bonus["intelligence"]
+        final_perception = base_attributes["perception"] + race_bonus["perception"] + class_bonus["perception"]
+        final_charisma = base_attributes["charisma"] + race_bonus["charisma"] + class_bonus["charisma"]
+
+        base_hp = 100
+        base_mana = 25
+        base_energy = 100
+
+        final_hp = base_hp + race_bonus["hp_bonus"] + class_bonus["hp_bonus"]
+        final_mana = base_mana + race_bonus["mana_bonus"] + class_bonus["mana_bonus"]
+        final_energy = base_energy + race_bonus["energy_bonus"] + class_bonus["energy_bonus"]
+
+        try:
+            new_character = Character(
+                user_id=user_id,
+                name=name,
+                race=race,
+                class_name=class_name,
+                background="New adventurer",
+                description="A newly created hero",
+                level=1,
+                xp=0,
+                gold=100,
+                status="alive"
+            )
+            db.session.add(new_character)
+            db.session.commit()
+
+            new_attributes = CharacterAttribute(
+                character_id=new_character.id,
+                strength=final_strength,
+                dexterity=final_dexterity,
+                constitution=final_constitution,
+                intelligence=final_intelligence,
+                perception=final_perception,
+                charisma=final_charisma
+            )
+            db.session.add(new_attributes)
+
+            new_resources = CharacterResource(
+                character_id=new_character.id,
+                hp_current=final_hp,
+                hp_max=final_hp,
+                energy_current=final_energy,
+                energy_max=final_energy,
+                mana_current=final_mana,
+                mana_max=final_mana,
+                stamina_current=100,
+                stamina_max=100
+            )
+            db.session.add(new_resources)
+
+            db.session.commit()
+
+            session["active_character_id"] = new_character.id
+            flash("Character created successfully.", "success")
+
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Database error: {str(e)}", "error")
+
+        return redirect(url_for("characters"))
+
+    @app.route("/characters/select/<int:character_id>", methods=["POST"])
+    def select_character(character_id):
+        if not is_logged_in():
+            return redirect(url_for("login"))
+
+        user_id = session.get("user_id")
+        character = get_character_by_id_for_user(character_id, user_id)
+
+        if not character:
+            flash("Character not found.", "error")
+            return redirect(url_for("characters"))
+
+        session["active_character_id"] = character.id
+        flash(f"{character.name} is now your active character.", "success")
+        return redirect(url_for("index"))
+
+    @app.route("/characters/delete/<int:character_id>", methods=["POST"])
+    def delete_character(character_id):
+        if not is_logged_in():
+            return redirect(url_for("login"))
+
+        user_id = session.get("user_id")
+        character = get_character_by_id_for_user(character_id, user_id)
+
+        if not character:
+            flash("Character not found.", "error")
+            return redirect(url_for("characters"))
+
+        try:
+            if session.get("active_character_id") == character.id:
+                session.pop("active_character_id", None)
+
+            db.session.delete(character)
+            db.session.commit()
+
+            remaining_characters = get_user_characters(user_id)
+            if remaining_characters:
+                session["active_character_id"] = remaining_characters[0].id
+
+            flash(f"{character.name} has been deleted.", "success")
+
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Database error: {str(e)}", "error")
+
+        return redirect(url_for("characters"))
 
     @app.route("/world")
     def world():
@@ -322,6 +520,11 @@ def create_app():
             }), 503
 
         active_character = get_active_character()
+
+        if not active_character:
+            return jsonify({
+                "error": "No active character found."
+            }), 400
 
         system_prompt = f"""
 Du bist ein Spielleiter für ein Fantasy-Textabenteuer.
