@@ -39,6 +39,7 @@ def create_app():
         return Character.query.filter_by(id=character_id, user_id=user_id).first()
 
     def serialize_character(character):
+        attributes = character.attributes
         resources = character.resources
 
         hp_current = resources.hp_current if resources else 0
@@ -47,6 +48,11 @@ def create_app():
         mana_max = resources.mana_max if resources else 0
         energy_current = resources.energy_current if resources else 0
         energy_max = resources.energy_max if resources else 0
+
+        strength = attributes.strength if attributes else 0
+        dexterity = attributes.dexterity if attributes else 0
+        intelligence = attributes.intelligence if attributes else 0
+        perception = attributes.perception if attributes else 0
 
         return {
             "id": character.id,
@@ -67,10 +73,10 @@ def create_app():
                 "gold": character.gold
             },
             "skills": [
-                {"icon": "⚔️", "name": "Sword", "level": 1},
-                {"icon": "🛡️", "name": "Shield", "level": 1},
-                {"icon": "🎯", "name": "Bow", "level": 1},
-                {"icon": "🗝️", "name": "Lockpick", "level": 1},
+                {"icon": "⚔️", "name": "Strength", "level": strength},
+                {"icon": "🎯", "name": "Dexterity", "level": dexterity},
+                {"icon": "🧠", "name": "Intelligence", "level": intelligence},
+                {"icon": "👁️", "name": "Perception", "level": perception},
             ],
             "current_state": {
                 "location": "Ravenhold",
@@ -233,6 +239,8 @@ def create_app():
         for character in db_characters:
             resources = character.resources
 
+            attributes = character.attributes
+
             characters.append({
                 "id": character.id,
                 "name": character.name,
@@ -255,10 +263,10 @@ def create_app():
                 "campaigns": 0,
                 "equipment": ["Starter Weapon", "Basic Armor"],
                 "inventory": ["Torch", "Bread"],
-                "skill_1": 1,
-                "skill_2": 1,
-                "skill_3": 1,
-                "skill_4": 1
+                "skill_1": attributes.strength if attributes else 0,
+                "skill_2": attributes.dexterity if attributes else 0,
+                "skill_3": attributes.intelligence if attributes else 0,
+                "skill_4": attributes.perception if attributes else 0
             })
 
         return render_template(
@@ -443,26 +451,46 @@ def create_app():
 
     @app.route("/community")
     def community():
-        users = [
-            {
-                "username": "Nick",
-                "characters": [
-                    {"name": "Wolfram der Türbrecher", "level": 7, "status": "alive"},
-                    {"name": "Theodor von Sturmbart", "level": 4, "status": "retired"},
-                ]
-            },
-            {
-                "username": "TestUser",
-                "characters": [
-                    {"name": "Elaena", "level": 5, "status": "alive"},
-                ]
-            }
-        ]
+        users = User.query.order_by(User.username.asc()).all()
+
+        community_users = []
+
+        for user in users:
+            user_characters = Character.query.filter_by(user_id=user.id).order_by(Character.created_at.asc()).all()
+
+            serialized_characters = []
+            for character in user_characters:
+                resources = character.resources
+                attributes = character.attributes
+
+                serialized_characters.append({
+                    "id": character.id,
+                    "name": character.name,
+                    "race": character.race,
+                    "class_name": character.class_name,
+                    "level": character.level,
+                    "status": character.status,
+                    "gold": character.gold,
+                    "hp": resources.hp_current if resources else 0,
+                    "max_hp": resources.hp_max if resources else 0,
+                    "mana": resources.mana_current if resources else 0,
+                    "max_mana": resources.mana_max if resources else 0,
+                    "energy": resources.energy_current if resources else 0,
+                    "max_energy": resources.energy_max if resources else 0,
+                    "strength": attributes.strength if attributes else 0,
+                    "dexterity": attributes.dexterity if attributes else 0,
+                    "intelligence": attributes.intelligence if attributes else 0,
+                })
+
+            community_users.append({
+                "username": user.username,
+                "characters": serialized_characters
+            })
 
         return render_template(
             "community.html",
             page_title="Community",
-            users=users
+            community_users=community_users
         )
 
     @app.route("/support")

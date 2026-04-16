@@ -7,81 +7,85 @@
 </section>
 
 <section class="card">
-    <div class="community-list">
-        {% for user in users %}
-            <article class="community-card">
-                <h2>{{ user.username }}</h2>
+    {% if not community_users %}
+        <section class="card">
+            <p>No users found yet.</p>
+        </section>
+    {% else %}
+        <div class="community-list">
+            {% for user in community_users %}
+                <section class="card">
+                    <div class="section-header">
+                        <h2>{{ user.username }}</h2>
+                    </div>
 
-                <div class="community-character-list">
-                    {% for character in user.characters %}
-                        <article class="community-character-card compact-entry">
+                    {% if not user.characters %}
+                        <p>This user has no characters yet.</p>
+                    {% else %}
+                        <div class="character-list">
+                            {% for character in user.characters %}
+                                <article class="card character-entry compact-entry">
 
-                            <div class="community-character-left">
-                                <div class="character-portrait">👤</div>
+                                    <div class="character-entry-left">
+                                        <div class="character-portrait">👤</div>
 
-                                <div class="character-meta">
-                                    <h3>{{ character.name }}</h3>
-                                    <p><strong>Level:</strong> {{ character.level }}</p>
-                                    <p><strong>Status:</strong> {{ character.status }}</p>
-                                    <p><strong>Gold:</strong> 245</p>
-                                </div>
-                            </div>
-
-                            <div class="community-character-middle compact-stats">
-                                <h3 class="compact-panel-title">Stats</h3>
-
-                                <div class="stat-block">
-                                    <div class="stat-row">
-                                        <span>❤️ HP</span>
-                                        <span>120 / 140</span>
+                                        <div class="character-meta">
+                                            <h2>{{ character.name }}</h2>
+                                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
+                                            <p><strong>Level:</strong> {{ character.level }}</p>
+                                            <p><strong>Status:</strong> {{ character.status }}</p>
+                                            <p><strong>Gold:</strong> {{ character.gold }}</p>
+                                        </div>
                                     </div>
-                                    <div class="bar">
-                                        <div class="bar-fill hp-fill" style="width: 85%"></div>
-                                    </div>
-                                </div>
 
-                                <div class="stat-block">
-                                    <div class="stat-row">
-                                        <span>🔮 Mana</span>
-                                        <span>30 / 50</span>
-                                    </div>
-                                    <div class="bar">
-                                        <div class="bar-fill mana-fill" style="width: 60%"></div>
-                                    </div>
-                                </div>
+                                    <div class="character-entry-middle compact-stats">
+                                        <h3 class="compact-panel-title">Stats</h3>
 
-                                <div class="stat-block">
-                                    <div class="stat-row">
-                                        <span>⚡ Energy</span>
-                                        <span>80 / 100</span>
+                                        <div class="stat-block">
+                                            <div class="stat-row">
+                                                <span>❤️ HP</span>
+                                                <span>{{ character.hp }}/{{ character.max_hp }}</span>
+                                            </div>
+                                            <div class="bar">
+                                                <div class="bar-fill hp-fill" style="width: {{ ((character.hp / character.max_hp) * 100) | int if character.max_hp > 0 else 0 }}%"></div>
+                                            </div>
+                                        </div>
+
+                                        <div class="stat-block">
+                                            <div class="stat-row">
+                                                <span>🔮 Mana</span>
+                                                <span>{{ character.mana }}/{{ character.max_mana }}</span>
+                                            </div>
+                                            <div class="bar">
+                                                <div class="bar-fill mana-fill" style="width: {{ ((character.mana / character.max_mana) * 100) | int if character.max_mana > 0 else 0 }}%"></div>
+                                            </div>
+                                        </div>
+
+                                        <div class="stat-block">
+                                            <div class="stat-row">
+                                                <span>⚡ Energy</span>
+                                                <span>{{ character.energy }}/{{ character.max_energy }}</span>
+                                            </div>
+                                            <div class="bar">
+                                                <div class="bar-fill energy-fill" style="width: {{ ((character.energy / character.max_energy) * 100) | int if character.max_energy > 0 else 0 }}%"></div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="bar">
-                                        <div class="bar-fill energy-fill" style="width: 80%"></div>
+
+                                    <div class="character-entry-right state-info">
+                                        <h3>Attributes</h3>
+                                        <p><strong>⚔️ Strength:</strong> {{ character.strength }}</p>
+                                        <p><strong>🎯 Dexterity:</strong> {{ character.dexterity }}</p>
+                                        <p><strong>🧠 Intelligence:</strong> {{ character.intelligence }}</p>
                                     </div>
-                                </div>
 
-                                <div class="skill-chip-row">
-                                    <span class="skill-chip">⚔️ 7</span>
-                                    <span class="skill-chip">🛡️ 6</span>
-                                    <span class="skill-chip">🎯 2</span>
-                                    <span class="skill-chip">🗝️ 1</span>
-                                </div>
-                            </div>
-
-                            <div class="community-character-right state-info">
-                                <h3>Adventure State</h3>
-                                <p><strong>📍 Location:</strong> Ravenhold</p>
-                                <p><strong>🕒 Time:</strong> Evening</p>
-                                <p><strong>📜 Quest:</strong> Find the missing blacksmith</p>
-                                <p><strong>✅ Quests:</strong> 3</p>
-                                <p><strong>🎮 Campaigns:</strong> 1</p>
-                            </div>
-
-                        </article>
-                    {% endfor %}
-                </div>
-            </article>
-        {% endfor %}
-    </div>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </section>
+            {% endfor %}
+        </div>
+    {% endif %}
 </section>
 {% endblock %}
