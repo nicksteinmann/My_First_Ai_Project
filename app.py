@@ -1,9 +1,24 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from models import db, User, UserProfile, Character, CharacterAttribute, CharacterResource
 from services.llm_service import ask_llm, check_provider_availability
 from data.character_presets import RACES, CLASSES
+from models import (
+    db,
+    User,
+    UserProfile,
+    Character,
+    CharacterAttribute,
+    CharacterResource,
+    Campaign,
+    CampaignState,
+    CampaignLocation,
+    CampaignQuest,
+    CharacterInventory,
+    ItemDefinition,
+    CampaignItem,
+    WorldTemplate,
+)
 
 
 def create_app():
@@ -38,9 +53,122 @@ def create_app():
     def get_character_by_id_for_user(character_id, user_id):
         return Character.query.filter_by(id=character_id, user_id=user_id).first()
 
+    def get_active_campaign_for_character(character_id):
+        return (
+            Campaign.query
+            .filter_by(character_id=character_id, status="active")
+            .order_by(Campaign.created_at.asc())
+            .first()
+        )
+
+    def get_current_campaign_location(campaign):
+        if not campaign:
+            return None
+
+        return (
+            CampaignLocation.query
+            .filter_by(campaign_id=campaign.id)
+            .order_by(CampaignLocation.created_at.asc())
+            .first()
+        )
+
+    def get_active_campaign_quest(campaign):
+        if not campaign:
+            return None
+
+        return (
+            CampaignQuest.query
+            .filter_by(campaign_id=campaign.id, status="active")
+            .order_by(CampaignQuest.started_at.asc())
+            .first()
+        )
+
+    def get_or_create_default_world_template():
+        world = WorldTemplate.query.filter_by(slug="avalion-default").first()
+        if world:
+            return world
+
+        world = WorldTemplate(
+            name="Avalion",
+            slug="avalion-default",
+            description="Default fantasy world for campaign starts.",
+            lore_summary="A fantasy world with a peaceful capital hub for all peoples.",
+            current_era="Fantasy Middle Ages",
+            world_year=1000,
+            is_active=True,
+        )
+        db.session.add(world)
+        db.session.commit()
+        return world
+
+    def get_or_create_item_definition(name, item_type, rarity, description, value_base, weight, slot_type=None):
+        item = ItemDefinition.query.filter_by(name=name).first()
+        if item:
+            return item
+
+        item = ItemDefinition(
+            name=name,
+            item_type=item_type,
+            rarity=rarity,
+            description=description,
+            value_base=value_base,
+            weight=weight,
+            slot_type=slot_type,
+            is_template_item=True,
+        )
+        db.session.add(item)
+        db.session.commit()
+        return item
+
+    def get_character_inventory_lists(character_id):
+        inventory_rows = (
+            CharacterInventory.query
+            .filter_by(character_id=character_id)
+            .order_by(CharacterInventory.id.asc())
+            .all()
+        )
+
+        item_definition_ids = [row.item_definition_id for row in inventory_rows if row.item_definition_id]
+        campaign_item_ids = [row.campaign_item_id for row in inventory_rows if row.campaign_item_id]
+
+        item_definitions = {}
+        if item_definition_ids:
+            defs = ItemDefinition.query.filter(ItemDefinition.id.in_(item_definition_ids)).all()
+            item_definitions = {item.id: item for item in defs}
+
+        campaign_items = {}
+        if campaign_item_ids:
+            items = CampaignItem.query.filter(CampaignItem.id.in_(campaign_item_ids)).all()
+            campaign_items = {item.id: item for item in items}
+
+        equipment = []
+        inventory = []
+
+        for row in inventory_rows:
+            item_name = "Unknown Item"
+
+            if row.item_definition_id and row.item_definition_id in item_definitions:
+                item_name = item_definitions[row.item_definition_id].name
+            elif row.campaign_item_id and row.campaign_item_id in campaign_items:
+                item_name = campaign_items[row.campaign_item_id].name
+
+            if row.quantity and row.quantity > 1:
+                item_name = f"{item_name} x{row.quantity}"
+
+            if row.is_equipped:
+                equipment.append(item_name)
+            else:
+                inventory.append(item_name)
+
+        return equipment, inventory
+
     def serialize_character(character):
         attributes = character.attributes
         resources = character.resources
+        campaign = get_active_campaign_for_character(character.id)
+        current_location = get_current_campaign_location(campaign)
+        active_quest = get_active_campaign_quest(campaign)
+        equipment_items, inventory_items = get_character_inventory_lists(character.id)
 
         hp_current = resources.hp_current if resources else 0
         hp_max = resources.hp_max if resources else 0
@@ -79,18 +207,13 @@ def create_app():
                 {"icon": "👁️", "name": "Perception", "level": perception},
             ],
             "current_state": {
-                "location": "Ravenhold",
-                "time_of_day": "Evening",
-                "active_quest": "No active quest"
+                "location": current_location.name if current_location else "Unknown",
+                "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
+                "active_quest": active_quest.title if active_quest else "No active quest",
+                "active_quest_description": active_quest.description if active_quest else ""
             },
-            "equipment": [
-                "Starter Weapon",
-                "Basic Armor"
-            ],
-            "inventory": [
-                "Torch",
-                "Bread"
-            ]
+            "equipment": equipment_items,
+            "inventory": inventory_items
         }
 
     def get_active_character():
@@ -238,8 +361,20 @@ def create_app():
         characters = []
         for character in db_characters:
             resources = character.resources
-
             attributes = character.attributes
+            campaign = get_active_campaign_for_character(character.id)
+            current_location = get_current_campaign_location(campaign)
+            active_quest = get_active_campaign_quest(campaign)
+            equipment_items, inventory_items = get_character_inventory_lists(character.id)
+
+            completed_quests_count = 0
+            campaigns_count = Campaign.query.filter_by(character_id=character.id).count()
+
+            if campaign:
+                completed_quests_count = CampaignQuest.query.filter_by(
+                    campaign_id=campaign.id,
+                    status="completed"
+                ).count()
 
             characters.append({
                 "id": character.id,
@@ -256,13 +391,13 @@ def create_app():
                 "max_mana": resources.mana_max if resources else 0,
                 "energy": resources.energy_current if resources else 0,
                 "max_energy": resources.energy_max if resources else 0,
-                "location": "Ravenhold",
-                "time": "Evening",
-                "quest": "No active quest",
-                "completed_quests": 0,
-                "campaigns": 0,
-                "equipment": ["Starter Weapon", "Basic Armor"],
-                "inventory": ["Torch", "Bread"],
+                "location": current_location.name if current_location else "Unknown",
+                "time": campaign.current_ingame_time if campaign else "Unknown",
+                "quest": active_quest.title if active_quest else "No active quest",
+                "completed_quests": completed_quests_count,
+                "campaigns": campaigns_count,
+                "equipment": equipment_items,
+                "inventory": inventory_items,
                 "skill_1": attributes.strength if attributes else 0,
                 "skill_2": attributes.dexterity if attributes else 0,
                 "skill_3": attributes.intelligence if attributes else 0,
@@ -366,6 +501,128 @@ def create_app():
                 stamina_max=100
             )
             db.session.add(new_resources)
+            db.session.commit()
+
+            default_world = get_or_create_default_world_template()
+
+            new_campaign = Campaign(
+                character_id=new_character.id,
+                world_template_id=default_world.id,
+                title=f"{new_character.name}'s First Journey",
+                status="active",
+                current_ingame_day=1,
+                current_ingame_time="morning"
+            )
+            db.session.add(new_campaign)
+            db.session.commit()
+
+            start_location = CampaignLocation(
+                campaign_id=new_campaign.id,
+                name="The Screeching Rat - Rented Room",
+                location_type="inn_room",
+                description="A tiny, cheap rented room with a straw bed and a wooden chest.",
+                is_discovered=True,
+                is_custom=False
+            )
+            db.session.add(start_location)
+
+            start_quest = CampaignQuest(
+                campaign_id=new_campaign.id,
+                title="Get Ready for the Day",
+                description="Equip your gear and leave your room.",
+                status="active",
+                reward_gold=0,
+                reward_xp=0
+            )
+            db.session.add(start_quest)
+
+            start_state = CampaignState(
+                campaign_id=new_campaign.id,
+                main_objective="Begin your journey in the capital.",
+                current_scene_summary=(
+                    "You wake up in a cheap rented room at the tavern called "
+                    "'The Screeching Rat' after arriving late in the capital."
+                ),
+                world_state_summary=(
+                    "The capital is a magically protected neutral city where open violence is impossible."
+                ),
+                last_session_summary=(
+                    "You arrived late at night, rented the cheapest bed available, and fell asleep exhausted."
+                ),
+                notes_json="{}"
+            )
+            db.session.add(start_state)
+            db.session.commit()
+
+            rusty_sword = get_or_create_item_definition(
+                name="Rusty Sword",
+                item_type="weapon",
+                rarity="common",
+                description="A worn but usable sword.",
+                value_base=15,
+                weight=4,
+                slot_type="weapon_main"
+            )
+
+            cloth_armor = get_or_create_item_definition(
+                name="Cloth Armor",
+                item_type="armor",
+                rarity="common",
+                description="Simple travel clothing with minimal protection.",
+                value_base=10,
+                weight=3,
+                slot_type="armor_body"
+            )
+
+            torch_item = get_or_create_item_definition(
+                name="Torch",
+                item_type="utility",
+                rarity="common",
+                description="A simple torch for dark places.",
+                value_base=2,
+                weight=1,
+                slot_type=None
+            )
+
+            bread_item = get_or_create_item_definition(
+                name="Bread",
+                item_type="consumable",
+                rarity="common",
+                description="A stale but edible loaf of bread.",
+                value_base=1,
+                weight=1,
+                slot_type=None
+            )
+
+            db.session.add(CharacterInventory(
+                character_id=new_character.id,
+                item_definition_id=rusty_sword.id,
+                quantity=1,
+                is_equipped=True,
+                equipped_slot="weapon_main"
+            ))
+
+            db.session.add(CharacterInventory(
+                character_id=new_character.id,
+                item_definition_id=cloth_armor.id,
+                quantity=1,
+                is_equipped=True,
+                equipped_slot="armor_body"
+            ))
+
+            db.session.add(CharacterInventory(
+                character_id=new_character.id,
+                item_definition_id=torch_item.id,
+                quantity=1,
+                is_equipped=False
+            ))
+
+            db.session.add(CharacterInventory(
+                character_id=new_character.id,
+                item_definition_id=bread_item.id,
+                quantity=1,
+                is_equipped=False
+            ))
 
             db.session.commit()
 
@@ -462,6 +719,10 @@ def create_app():
             for character in user_characters:
                 resources = character.resources
                 attributes = character.attributes
+                campaign = get_active_campaign_for_character(character.id)
+                current_location = get_current_campaign_location(campaign)
+                active_quest = get_active_campaign_quest(campaign)
+                equipment_items, inventory_items = get_character_inventory_lists(character.id)
 
                 serialized_characters.append({
                     "id": character.id,
@@ -480,6 +741,11 @@ def create_app():
                     "strength": attributes.strength if attributes else 0,
                     "dexterity": attributes.dexterity if attributes else 0,
                     "intelligence": attributes.intelligence if attributes else 0,
+                    "location": current_location.name if current_location else "Unknown",
+                    "time": campaign.current_ingame_time if campaign else "Unknown",
+                    "quest": active_quest.title if active_quest else "No active quest",
+                    "equipment": equipment_items,
+                    "inventory": inventory_items
                 })
 
             community_users.append({
@@ -563,11 +829,16 @@ Aktiver Charakter:
 - Rasse: {active_character['race']}
 - Level: {active_character['level']}
 - Aktueller Ort: {active_character['current_state']['location']}
+- Aktuelle Tageszeit: {active_character['current_state']['time_of_day']}
 - Aktive Quest: {active_character['current_state']['active_quest']}
+- Questbeschreibung: {active_character['current_state']['active_quest_description']}
+- Ausrüstung: {', '.join(active_character['equipment']) if active_character['equipment'] else 'Keine'}
+- Inventar: {', '.join(active_character['inventory']) if active_character['inventory'] else 'Leer'}
 
 Antworte als Spielleiter.
 Bleibe in der Spielwelt.
 Führe die Szene sinnvoll weiter.
+Berücksichtige Ort, Tageszeit, aktive Quest, Ausrüstung und Inventar.
 Gewalt nur moderat beschreiben.
 """
 

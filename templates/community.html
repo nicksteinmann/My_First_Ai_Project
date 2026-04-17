@@ -73,7 +73,30 @@
                                     </div>
 
                                     <div class="character-entry-right state-info">
-                                        <h3>Attributes</h3>
+                                        <h3>Adventure State</h3>
+                                        <p><strong>📍 Location:</strong> {{ character.location }}</p>
+                                        <p><strong>🕒 Time:</strong> {{ character.time }}</p>
+                                        <p><strong>📜 Quest:</strong> {{ character.quest }}</p>
+
+                                        <hr class="divider">
+
+                                        <h4>Equipment</h4>
+                                        <ul class="simple-list">
+                                            {% for item in character.equipment %}
+                                                <li>{{ item }}</li>
+                                            {% endfor %}
+                                        </ul>
+
+                                        <h4>Inventory</h4>
+                                        <ul class="simple-list">
+                                            {% for item in character.inventory %}
+                                                <li>{{ item }}</li>
+                                            {% endfor %}
+                                        </ul>
+
+                                        <hr class="divider">
+
+                                        <h4>Attributes</h4>
                                         <p><strong>⚔️ Strength:</strong> {{ character.strength }}</p>
                                         <p><strong>🎯 Dexterity:</strong> {{ character.dexterity }}</p>
                                         <p><strong>🧠 Intelligence:</strong> {{ character.intelligence }}</p>
