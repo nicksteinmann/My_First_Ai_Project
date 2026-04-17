@@ -108,7 +108,15 @@
                     </div>
                 </div>
 
-                <div id="chat" class="chat-box large"></div>
+                <div id="chat" class="chat-box large">
+                    {% if story_messages %}
+                        {% for message in story_messages %}
+                            <div class="chat-message {{ message.css_class }}">
+                                <strong>{{ message.sender_label }}:</strong> {{ message.content }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
 
                 <div class="chat-input-row">
                     <textarea id="input" placeholder="Describe your next action..."></textarea>
@@ -231,5 +239,10 @@
     }
 
     loadProviders();
+
+    const chatBox = document.getElementById("chat");
+    if (chatBox) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
 </script>
 {% endblock %}

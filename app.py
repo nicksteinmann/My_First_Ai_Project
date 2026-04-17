@@ -18,6 +18,7 @@ from models import (
     ItemDefinition,
     CampaignItem,
     WorldTemplate,
+    StoryMessage,
 )
 
 
@@ -162,6 +163,55 @@ def create_app():
 
         return equipment, inventory
 
+    def get_recent_story_messages(campaign_id, limit=12):
+        messages = (
+            StoryMessage.query
+            .filter_by(campaign_id=campaign_id)
+            .order_by(StoryMessage.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return list(reversed(messages))
+
+    def serialize_story_messages_for_template(messages):
+        serialized = []
+
+        for msg in messages:
+            if msg.sender_type == "user":
+                css_class = "user"
+                sender_label = "You"
+            elif msg.sender_type in ("assistant", "ai", "gm"):
+                css_class = "ai"
+                sender_label = "Game Master"
+            else:
+                css_class = "system"
+                sender_label = "System"
+
+            serialized.append({
+                "sender_label": sender_label,
+                "css_class": css_class,
+                "content": msg.content
+            })
+
+        return serialized
+
+    def build_story_history_text(messages):
+        if not messages:
+            return ""
+
+        lines = []
+        for msg in messages:
+            if msg.sender_type == "user":
+                speaker = "Player"
+            elif msg.sender_type in ("assistant", "ai", "gm"):
+                speaker = "Game Master"
+            else:
+                speaker = "System"
+
+            lines.append(f"{speaker}: {msg.content}")
+
+        return "\n".join(lines)
+
     def serialize_character(character):
         attributes = character.attributes
         resources = character.resources
@@ -250,13 +300,21 @@ def create_app():
             return redirect(url_for("login"))
 
         active_character = get_active_character()
+        story_messages = []
+
+        if active_character:
+            campaign = get_active_campaign_for_character(active_character["id"])
+            if campaign:
+                recent_messages = get_recent_story_messages(campaign.id, limit=20)
+                story_messages = serialize_story_messages_for_template(recent_messages)
 
         return render_template(
-        "index.html",
+            "index.html",
             page_title="Home",
             logged_in=True,
             active_character=active_character,
-            username=current_user.username
+            username=current_user.username,
+            story_messages=story_messages
         )
 
     @app.route("/login", methods=["GET", "POST"])
@@ -820,6 +878,16 @@ def create_app():
                 "error": "No active character found."
             }), 400
 
+        campaign = get_active_campaign_for_character(active_character["id"])
+
+        if not campaign:
+            return jsonify({
+                "error": "No active campaign found."
+            }), 400
+
+        recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
+        history_text = build_story_history_text(recent_story_messages)
+
         system_prompt = f"""
 Du bist ein Spielleiter für ein Fantasy-Textabenteuer.
 
@@ -835,24 +903,58 @@ Aktiver Charakter:
 - Ausrüstung: {', '.join(active_character['equipment']) if active_character['equipment'] else 'Keine'}
 - Inventar: {', '.join(active_character['inventory']) if active_character['inventory'] else 'Leer'}
 
-Antworte als Spielleiter.
-Bleibe in der Spielwelt.
-Führe die Szene sinnvoll weiter.
-Berücksichtige Ort, Tageszeit, aktive Quest, Ausrüstung und Inventar.
-Gewalt nur moderat beschreiben.
+Wichtige Regeln:
+- Bleibe in der bestehenden Szene und setze die Geschichte fort.
+- Starte NICHT erneut am Kampagnenanfang, wenn bereits Verlauf vorhanden ist.
+- Berücksichtige den bisherigen Gesprächsverlauf.
+- Berücksichtige Ort, Tageszeit, Quest, Ausrüstung und Inventar.
+- Antworte als Spielleiter.
+- Gewalt nur moderat beschreiben.
 """
 
+        prompt_parts = []
+
+        if history_text:
+            prompt_parts.append("Bisheriger Verlauf:")
+            prompt_parts.append(history_text)
+
+        prompt_parts.append("Neue Spieleraktion / neue Spielerfrage:")
+        prompt_parts.append(user_input)
+
+        final_prompt = "\n\n".join(prompt_parts)
+
         try:
+            user_message = StoryMessage(
+                campaign_id=campaign.id,
+                message_type="story",
+                sender_type="user",
+                content=user_input
+            )
+            db.session.add(user_message)
+            db.session.commit()
+
             response = ask_llm(
-                prompt=user_input,
+                prompt=final_prompt,
                 provider=provider,
                 system_prompt=system_prompt
             )
+
+            assistant_message = StoryMessage(
+                campaign_id=campaign.id,
+                message_type="story",
+                sender_type="assistant",
+                content=response
+            )
+            db.session.add(assistant_message)
+            db.session.commit()
+
             return jsonify({
                 "provider": provider,
                 "response": response
             })
+
         except Exception as e:
+            db.session.rollback()
             return jsonify({
                 "error": "API-Fehler",
                 "details": str(e)
