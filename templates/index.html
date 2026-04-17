@@ -123,7 +123,7 @@
                 </div>
 
                 <div class="button-row top-spacing">
-                    <button class="btn" onclick="sendMessage()">Send</button>
+                    <button id="sendBtn" class="btn" type="button" onclick="sendMessage()">Send</button>
                     <button class="btn btn-secondary" type="button">Save Adventure</button>
                 </div>
             </section>
@@ -164,6 +164,8 @@
 {% endif %}
 
 <script>
+    let isSending = false;
+
     async function loadProviders() {
         const select = document.getElementById("providerSelect");
         if (!select) return;
@@ -200,18 +202,29 @@
     }
 
     async function sendMessage() {
+        if (isSending) return;
+
         const input = document.getElementById("input");
         const chat = document.getElementById("chat");
         const providerSelect = document.getElementById("providerSelect");
+        const sendBtn = document.getElementById("sendBtn");
 
-        if (!input || !chat || !providerSelect) return;
+        if (!input || !chat || !providerSelect || !sendBtn) return;
 
         const provider = providerSelect.value;
         const text = input.value.trim();
 
         if (!text) return;
 
+        isSending = true;
+        sendBtn.disabled = true;
+        input.disabled = true;
+
+        const originalButtonText = sendBtn.textContent;
+        sendBtn.textContent = "Sending...";
+
         chat.innerHTML += `<div class="chat-message user"><strong>You:</strong> ${text}</div>`;
+        chat.scrollTop = chat.scrollHeight;
 
         try {
             const res = await fetch("/api/game", {
@@ -226,7 +239,7 @@
             const data = await res.json();
 
             if (!res.ok) {
-                chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${data.error || "Unknown error"} ${data.details ? "- " + data.details : ""}</div>`;
+                chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${data.error || "Unknown error"}${data.details ? " - " + data.details : ""}</div>`;
                 return;
             }
 
@@ -235,7 +248,24 @@
             chat.scrollTop = chat.scrollHeight;
         } catch (err) {
             chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> Connection error.</div>`;
+            chat.scrollTop = chat.scrollHeight;
+        } finally {
+            isSending = false;
+            sendBtn.disabled = false;
+            input.disabled = false;
+            sendBtn.textContent = originalButtonText;
+            input.focus();
         }
+    }
+
+    const inputField = document.getElementById("input");
+    if (inputField) {
+        inputField.addEventListener("keydown", function (event) {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
     }
 
     loadProviders();
