@@ -1,7 +1,10 @@
+import json
+
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from services.llm_service import ask_llm, check_provider_availability
+from services.llm_service import build_client, get_provider_config, check_provider_availability
+from services.tools.state_tools import STATE_TOOL_DEFINITIONS, execute_state_tool
 from data.character_presets import RACES, CLASSES
 from models import (
     db,
@@ -65,6 +68,9 @@ def create_app():
     def get_current_campaign_location(campaign):
         if not campaign:
             return None
+
+        if hasattr(campaign, "current_location_id") and campaign.current_location_id:
+            return db.session.get(CampaignLocation, campaign.current_location_id)
 
         return (
             CampaignLocation.query
@@ -583,6 +589,10 @@ def create_app():
                 is_custom=False
             )
             db.session.add(start_location)
+            db.session.flush()
+
+            if hasattr(new_campaign, "current_location_id"):
+                new_campaign.current_location_id = start_location.id
 
             start_quest = CampaignQuest(
                 campaign_id=new_campaign.id,
@@ -872,21 +882,18 @@ def create_app():
             }), 503
 
         active_character = get_active_character()
-
         if not active_character:
             return jsonify({
                 "error": "No active character found."
             }), 400
 
         campaign = get_active_campaign_for_character(active_character["id"])
-
         if not campaign:
             return jsonify({
                 "error": "No active campaign found."
             }), 400
 
         recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
-        history_text = build_story_history_text(recent_story_messages)
 
         system_prompt = f"""
 Du bist ein Spielleiter für ein Fantasy-Textabenteuer.
@@ -906,22 +913,31 @@ Aktiver Charakter:
 Wichtige Regeln:
 - Bleibe in der bestehenden Szene und setze die Geschichte fort.
 - Starte NICHT erneut am Kampagnenanfang, wenn bereits Verlauf vorhanden ist.
-- Berücksichtige den bisherigen Gesprächsverlauf.
-- Berücksichtige Ort, Tageszeit, Quest, Ausrüstung und Inventar.
+- Wenn sich Ort, Zeit oder Quest ändern, benutze die verfügbaren Tools.
+- Erfinde KEINE bereits ausgeführten Backend-Ergebnisse.
+- Nutze Tools nur dann, wenn wirklich ein Zustandswechsel stattfindet.
 - Antworte als Spielleiter.
 - Gewalt nur moderat beschreiben.
+WICHTIG:
+- Nutze NUR die definierten Tools.
+- Nutze KEINE XML, KEINE Tags, KEINE eigenen Formate.
+- Verwende ausschließlich echtes Tool Calling.
+- Erfinde keine Toolnamen.
+- Wenn du ein Tool nutzt, dann IMMER über tool_calls.
 """
 
-        prompt_parts = []
+        messages = [{"role": "system", "content": system_prompt}]
 
-        if history_text:
-            prompt_parts.append("Bisheriger Verlauf:")
-            prompt_parts.append(history_text)
+        for msg in recent_story_messages:
+            if msg.sender_type == "user":
+                messages.append({"role": "user", "content": msg.content})
+            elif msg.sender_type in ("assistant", "ai", "gm"):
+                messages.append({"role": "assistant", "content": msg.content})
 
-        prompt_parts.append("Neue Spieleraktion / neue Spielerfrage:")
-        prompt_parts.append(user_input)
+        messages.append({"role": "user", "content": user_input})
 
-        final_prompt = "\n\n".join(prompt_parts)
+        client = build_client(provider)
+        cfg = get_provider_config(provider)
 
         try:
             user_message = StoryMessage(
@@ -933,24 +949,82 @@ Wichtige Regeln:
             db.session.add(user_message)
             db.session.commit()
 
-            response = ask_llm(
-                prompt=final_prompt,
-                provider=provider,
-                system_prompt=system_prompt
+            first_response = client.chat.completions.create(
+                model=cfg["model"],
+                messages=messages,
+                tools=STATE_TOOL_DEFINITIONS,
+                tool_choice="auto",
+                temperature=0.7,
+                max_tokens=500,
             )
+
+            first_message = first_response.choices[0].message
+            final_response_text = first_message.content or ""
+
+            if first_message.tool_calls:
+                assistant_tool_message = {
+                    "role": "assistant",
+                    "content": first_message.content or "",
+                    "tool_calls": []
+                }
+
+                tool_result_messages = []
+
+                for tool_call in first_message.tool_calls:
+                    tool_name = tool_call.function.name
+
+                    try:
+                        tool_args = json.loads(tool_call.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    tool_result = execute_state_tool(
+                        campaign_id=campaign.id,
+                        tool_name=tool_name,
+                        arguments=tool_args
+                    )
+
+                    assistant_tool_message["tool_calls"].append({
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": tool_call.function.arguments or "{}"
+                        }
+                    })
+
+                    tool_result_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(tool_result, ensure_ascii=False)
+                    })
+
+                second_messages = messages + [assistant_tool_message] + tool_result_messages
+
+                second_response = client.chat.completions.create(
+                    model=cfg["model"],
+                    messages=second_messages,
+                    temperature=0.7,
+                    max_tokens=500,
+                )
+
+                final_response_text = second_response.choices[0].message.content or final_response_text
 
             assistant_message = StoryMessage(
                 campaign_id=campaign.id,
                 message_type="story",
                 sender_type="assistant",
-                content=response
+                content=final_response_text
             )
             db.session.add(assistant_message)
             db.session.commit()
 
+            updated_character = get_active_character()
+
             return jsonify({
                 "provider": provider,
-                "response": response
+                "response": final_response_text,
+                "character": updated_character
             })
 
         except Exception as e:

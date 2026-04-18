@@ -33,7 +33,6 @@
 {% if active_character %}
 <section class="home-layout">
 
-    <!-- LEFT CHARACTER PANEL -->
     <section class="card home-character-card">
         <div class="home-character-panel">
             <div class="home-character-header">
@@ -94,10 +93,8 @@
         </div>
     </section>
 
-    <!-- RIGHT SIDE -->
     <section class="home-right-column">
         <div class="home-right-grid">
-            <!-- CHAT -->
             <section class="card chat-card">
                 <div class="chat-header-row">
                     <h2>Adventure Chat</h2>
@@ -128,12 +125,11 @@
                 </div>
             </section>
 
-            <!-- ADVENTURE STATE -->
             <section class="card home-state-card">
                 <h2>Adventure State</h2>
-                <p><strong>📍 Location:</strong> {{ active_character.current_state.location }}</p>
-                <p><strong>🕒 Time:</strong> {{ active_character.current_state.time_of_day }}</p>
-                <p><strong>📜 Quest:</strong> {{ active_character.current_state.active_quest }}</p>
+                <p id="state-location"><strong>📍 Location:</strong> {{ active_character.current_state.location }}</p>
+                <p id="state-time"><strong>🕒 Time:</strong> {{ active_character.current_state.time_of_day }}</p>
+                <p id="state-quest"><strong>📜 Quest:</strong> {{ active_character.current_state.active_quest }}</p>
 
                 <hr class="divider">
 
@@ -201,6 +197,26 @@
         }
     }
 
+    function updateAdventureState(character) {
+        if (!character || !character.current_state) return;
+
+        const locationEl = document.getElementById("state-location");
+        const timeEl = document.getElementById("state-time");
+        const questEl = document.getElementById("state-quest");
+
+        if (locationEl) {
+            locationEl.innerHTML = `<strong>📍 Location:</strong> ${character.current_state.location}`;
+        }
+
+        if (timeEl) {
+            timeEl.innerHTML = `<strong>🕒 Time:</strong> ${character.current_state.time_of_day}`;
+        }
+
+        if (questEl) {
+            questEl.innerHTML = `<strong>📜 Quest:</strong> ${character.current_state.active_quest}`;
+        }
+    }
+
     async function sendMessage() {
         if (isSending) return;
 
@@ -238,8 +254,13 @@
 
             const data = await res.json();
 
+            if (data.character) {
+                updateAdventureState(data.character);
+            }
+
             if (!res.ok) {
                 chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${data.error || "Unknown error"}${data.details ? " - " + data.details : ""}</div>`;
+                chat.scrollTop = chat.scrollHeight;
                 return;
             }
 
