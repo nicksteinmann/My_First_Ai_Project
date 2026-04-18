@@ -3,7 +3,7 @@ import json
 from models import db, Campaign, CampaignLocation, CampaignQuest
 
 
-TIME_ORDER = ["morning", "noon", "afternoon", "evening", "night"]
+TIME_ORDER = ["late night", "early morning", "morning", "noon", "afternoon", "evening", "night", "midnight"]
 
 
 def _normalize_time_label(value: str) -> str:

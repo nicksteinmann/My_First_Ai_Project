@@ -1,4 +1,5 @@
 import json
+import re
 
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -924,6 +925,11 @@ WICHTIG:
 - Verwende ausschließlich echtes Tool Calling.
 - Erfinde keine Toolnamen.
 - Wenn du ein Tool nutzt, dann IMMER über tool_calls.
+-Wenn sich der Ort ändert, MUSST du update_location aufrufen.
+If you generate tool calls:
+- DO NOT write any text explanation before or after
+- DO NOT use XML or DSML tags
+- ONLY return valid tool_calls
 """
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -961,7 +967,36 @@ WICHTIG:
             first_message = first_response.choices[0].message
             final_response_text = first_message.content or ""
 
-            if first_message.tool_calls:
+            def extract_fake_tool_calls(text):
+                pattern = r'<\｜DSML\｜invoke name="(.*?)">(.*?)<\｜DSML\｜/invoke>'
+                matches = re.findall(pattern, text, re.DOTALL)
+
+                parsed_tool_calls = []
+
+                for name, inner in matches:
+                    params = {}
+
+                    param_pattern = r'<\｜DSML\｜parameter name="(.*?)"(?: string="true")?>(.*?)</\｜DSML\｜parameter>'
+                    param_matches = re.findall(param_pattern, inner, re.DOTALL)
+
+                    for key, value in param_matches:
+                        params[key] = value.strip()
+
+                    parsed_tool_calls.append({
+                        "name": name.strip(),
+                        "arguments": params
+                    })
+
+                return parsed_tool_calls
+
+            tool_calls = first_message.tool_calls or []
+
+            if not tool_calls and first_message.content:
+                fake_calls = extract_fake_tool_calls(first_message.content)
+                if fake_calls:
+                    tool_calls = fake_calls
+
+            if tool_calls:
                 assistant_tool_message = {
                     "role": "assistant",
                     "content": first_message.content or "",
@@ -970,32 +1005,61 @@ WICHTIG:
 
                 tool_result_messages = []
 
-                for tool_call in first_message.tool_calls:
-                    tool_name = tool_call.function.name
+                for index, tool_call in enumerate(tool_calls):
+                    if hasattr(tool_call, "function"):
+                        tool_name = tool_call.function.name
+                        tool_call_id = tool_call.id
 
-                    try:
-                        tool_args = json.loads(tool_call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        tool_args = {}
+                        try:
+                            tool_args = json.loads(tool_call.function.arguments or "{}")
+                        except json.JSONDecodeError:
+                            tool_args = {}
+
+                        raw_arguments = tool_call.function.arguments or "{}"
+                    else:
+                        tool_name = tool_call["name"]
+                        tool_args = tool_call["arguments"]
+                        tool_call_id = f"fake_tool_call_{index}"
+                        raw_arguments = json.dumps(tool_args, ensure_ascii=False)
+
+                    normalized_tool_name = tool_name
+                    normalized_tool_args = dict(tool_args)
+
+                    if normalized_tool_name == "change_location":
+                        normalized_tool_name = "update_location"
+
+                    if normalized_tool_name == "update_active_quest":
+                        normalized_tool_name = "set_active_quest"
+
+                    if normalized_tool_name == "update_location":
+                        if "location" in normalized_tool_args and "location_name" not in normalized_tool_args:
+                            normalized_tool_args["location_name"] = normalized_tool_args["location"]
+
+                    if normalized_tool_name == "set_active_quest":
+                        if "quest_title" in normalized_tool_args and "title" not in normalized_tool_args:
+                            normalized_tool_args["title"] = normalized_tool_args["quest_title"]
+
+                        if "quest_description" in normalized_tool_args and "description" not in normalized_tool_args:
+                            normalized_tool_args["description"] = normalized_tool_args["quest_description"]
 
                     tool_result = execute_state_tool(
                         campaign_id=campaign.id,
-                        tool_name=tool_name,
-                        arguments=tool_args
+                        tool_name=normalized_tool_name,
+                        arguments=normalized_tool_args
                     )
 
                     assistant_tool_message["tool_calls"].append({
-                        "id": tool_call.id,
+                        "id": tool_call_id,
                         "type": "function",
                         "function": {
                             "name": tool_name,
-                            "arguments": tool_call.function.arguments or "{}"
+                            "arguments": raw_arguments
                         }
                     })
 
                     tool_result_messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tool_call_id,
                         "content": json.dumps(tool_result, ensure_ascii=False)
                     })
 
