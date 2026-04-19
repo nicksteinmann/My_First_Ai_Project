@@ -63,7 +63,39 @@ def _normalize_item_payload(item: Dict[str, Any]) -> Dict[str, Any]:
     normalized["weight"] = float(normalized.get("weight", 1.0))
     normalized["stackable"] = bool(normalized.get("stackable", False))
     normalized["quantity"] = int(normalized.get("quantity", 1))
-    normalized["hand_usage"] = (normalized.get("hand_usage") or "none").strip().lower()
+
+    raw_hand_usage = (normalized.get("hand_usage") or "none").strip().lower()
+
+    HAND_USAGE_ALIASES = {
+        # ONE HAND
+        "one-handed": "one_handed",
+        "one handed": "one_handed",
+        "onehanded": "one_handed",
+        "one-hand": "one_handed",
+        "one hand": "one_handed",
+        "one_hand": "one_handed",
+        "one": "one_handed",
+
+        # TWO HANDS
+        "two-handed": "two_handed",
+        "two handed": "two_handed",
+        "twohanded": "two_handed",
+        "two-hands": "two_handed",
+        "two hands": "two_handed",
+        "two hand": "two_handed",
+        "two_hand": "two_handed",
+        "two_hands": "two_handed",
+        "two": "two_handed",
+
+        # NONE
+        "none": "none",
+        "no": "none",
+        "no hands": "none",
+        "no hand": "none",
+        "free": "none"
+    }
+
+    normalized["hand_usage"] = HAND_USAGE_ALIASES.get(raw_hand_usage, raw_hand_usage)
 
     if not normalized["name"]:
         raise ValueError("Item name is required.")
@@ -211,9 +243,18 @@ def remove_inventory_item(
             )
         candidate_containers = [target]
 
+    normalized_item_id = item_id.lower().strip()
+
     for container in candidate_containers:
         for existing in container.get("items", []):
-            if existing["item_id"] == item_id:
+            existing_id = existing["item_id"].lower()
+            existing_name = existing["name"].lower().strip()
+
+            if (
+                existing_id == normalized_item_id
+                or existing_name == normalized_item_id
+                or normalized_item_id in existing_name
+            ):
                 if existing["quantity"] < quantity:
                     return InventoryOperationResult(
                         success=False,
@@ -236,9 +277,11 @@ def remove_inventory_item(
                     inventory=inventory_blob,
                     details={
                         "container_id": container["container_id"],
-                        "item_id": item_id,
+                        "item_id": existing["item_id"],
                     }
                 )
+
+    print("REMOVE FAILED:", item_id)
 
     return InventoryOperationResult(
         success=False,

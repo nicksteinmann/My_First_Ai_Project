@@ -7,7 +7,7 @@ SIZE_ORDER = {
 }
 
 VALID_SIZES = tuple(SIZE_ORDER.keys())
-VALID_HAND_USAGE = ("none", "one_hand", "two_hands")
+VALID_HAND_USAGE = ("none", "one_handed", "two_handed")
 
 DEFAULT_BASE_CONTAINER = {
     "container_id": "base_inventory",
@@ -37,7 +37,7 @@ ITEM_TYPE_DEFAULTS = {
         "volume": 2.0,
         "weight": 3.0,
         "stackable": False,
-        "hand_usage": "one_hand",
+        "hand_usage": "one_handed",
     },
     "armor": {
         "size": "large",

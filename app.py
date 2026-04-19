@@ -661,7 +661,7 @@ def create_app():
                         "weight": 4.0,
                         "stackable": False,
                         "quantity": 1,
-                        "hand_usage": "one_hand",
+                        "hand_usage": "one_handed",
                         "item_type": "weapon",
                     },
                     "quantity": 1,
@@ -693,7 +693,7 @@ def create_app():
                         "weight": 1.0,
                         "stackable": False,
                         "quantity": 1,
-                        "hand_usage": "one_hand",
+                        "hand_usage": "one_handed",
                         "item_type": "utility",
                     },
                     "quantity": 1,
@@ -967,6 +967,11 @@ If you generate tool calls:
 - DO NOT write any text explanation before or after
 - DO NOT use XML or DSML tags
 - ONLY return valid tool_calls
+WICHTIG:
+Wenn eine Aktion ein Item verändert (nehmen, ablegen, essen, benutzen),
+MUSS ein Tool-Call ausgeführt werden.
+
+Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
 """
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -1005,19 +1010,33 @@ If you generate tool calls:
             final_response_text = first_message.content or ""
 
             def extract_fake_tool_calls(text):
-                pattern = r'<\｜DSML\｜invoke name="(.*?)">(.*?)<\｜DSML\｜/invoke>'
-                matches = re.findall(pattern, text, re.DOTALL)
+                if not text:
+                    return []
 
                 parsed_tool_calls = []
 
-                for name, inner in matches:
+                invoke_pattern = r'<\｜DSML\｜invoke\s+name="([^"]+)"\s*>(.*?)(?=<\｜DSML\｜invoke|<\｜DSML\｜/invoke>|$)'
+                invoke_matches = re.findall(invoke_pattern, text, re.DOTALL)
+
+                for name, inner in invoke_matches:
                     params = {}
 
-                    param_pattern = r'<\｜DSML\｜parameter name="(.*?)"(?: string="true")?>(.*?)</\｜DSML\｜parameter>'
+                    param_pattern = (
+                        r'<\｜DSML\｜parameter\s+name="([^"]+)"'
+                        r'(?:\s+string="(?:true|false)")?\s*>'
+                        r'(.*?)(?=<\｜DSML\｜parameter|<\｜DSML\｜/invoke>|$)'
+                    )
                     param_matches = re.findall(param_pattern, inner, re.DOTALL)
 
                     for key, value in param_matches:
-                        params[key] = value.strip()
+                        cleaned_value = value.strip()
+
+                        cleaned_value = re.sub(r'<\｜DSML\｜/?parameter[^>]*>', '', cleaned_value).strip()
+                        cleaned_value = re.sub(r'<\｜DSML\｜/?invoke[^>]*>', '', cleaned_value).strip()
+                        cleaned_value = re.sub(r'<\｜DSML\｜/?function_calls[^>]*>', '', cleaned_value).strip()
+
+                        if cleaned_value:
+                            params[key] = cleaned_value
 
                     parsed_tool_calls.append({
                         "name": name.strip(),
@@ -1031,7 +1050,34 @@ If you generate tool calls:
             if not tool_calls and first_message.content:
                 fake_calls = extract_fake_tool_calls(first_message.content)
                 if fake_calls:
-                    tool_calls = fake_calls
+                    valid_tool_names = {
+                        *(t["function"]["name"] for t in STATE_TOOL_DEFINITIONS),
+                        *(t["function"]["name"] for t in INVENTORY_TOOL_DEFINITIONS),
+                        "change_location",
+                        "update_active_quest",
+                    }
+
+                    filtered_fake_calls = [
+                        call for call in fake_calls
+                        if call.get("name") in valid_tool_names
+                    ]
+
+                    tool_calls = filtered_fake_calls
+
+            print("=== RAW MODEL CONTENT ===")
+            print(first_message.content)
+
+            if tool_calls:
+                print("=== PARSED TOOL CALLS ===")
+                if hasattr(first_message, "tool_calls") and first_message.tool_calls:
+                    for tc in first_message.tool_calls:
+                        if hasattr(tc, "function"):
+                            print(tc.function.name, tc.function.arguments)
+                        else:
+                            print(tc)
+                else:
+                    for tc in tool_calls:
+                        print(tc)
 
             if tool_calls:
                 assistant_tool_message = {
@@ -1058,6 +1104,24 @@ If you generate tool calls:
                         tool_args = tool_call["arguments"]
                         tool_call_id = f"fake_tool_call_{index}"
                         raw_arguments = json.dumps(tool_args, ensure_ascii=False)
+
+                    if isinstance(tool_args, dict):
+                        cleaned_tool_args = {}
+
+                        for key, value in tool_args.items():
+                            if isinstance(value, str):
+                                value = value.strip()
+
+                                if value.isdigit():
+                                    value = int(value)
+                                elif value.lower() == "true":
+                                    value = True
+                                elif value.lower() == "false":
+                                    value = False
+
+                            cleaned_tool_args[key] = value
+
+                        tool_args = cleaned_tool_args
 
                     normalized_tool_name = tool_name
                     normalized_tool_args = dict(tool_args)
