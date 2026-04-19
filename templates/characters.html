@@ -147,11 +147,44 @@
                         </ul>
 
                         <h4>Inventory</h4>
-                        <ul class="simple-list">
-                            {% for item in character.inventory %}
-                                <li>{{ item }}</li>
+
+                        {% if character.inventory_containers %}
+                            {% for container in character.inventory_containers %}
+                                <div class="inventory-container">
+
+                                    <div class="inventory-container-header">
+                                        <strong>{{ container.name }}</strong>
+                                        <span class="muted-text">({{ container.container_id }})</span>
+                                    </div>
+
+                                    <div class="inventory-container-stats">
+                                        <span>Size: {{ container.max_item_size }}</span>
+                                        <span>Volume: {{ container.used_volume }} / {{ container.max_volume }}</span>
+                                        <span>Weight: {{ container.total_weight }}</span>
+                                    </div>
+
+                                    {% if container["items"] %}
+                                        <ul class="inventory-item-list">
+                                            {% for item in container["items"] %}
+                                                <li class="inventory-item">
+                                                    <strong>{{ item.display_name }}</strong>
+                                                    <div class="inventory-item-details">
+                                                        <span>Size: {{ item.size }}</span>
+                                                        <span>Vol: {{ item.total_volume }}</span>
+                                                        <span>Weight: {{ item.total_weight }}</span>
+                                                    </div>
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p class="muted-text">Empty</p>
+                                    {% endif %}
+
+                                </div>
                             {% endfor %}
-                        </ul>
+                        {% else %}
+                            <p class="muted-text">No inventory</p>
+                        {% endif %}
                     </div>
                 </article>
             {% endfor %}

@@ -57,12 +57,12 @@ class Character(db.Model, TimestampMixin):
     xp = db.Column(db.Integer, default=0, nullable=False)
     gold = db.Column(db.Integer, default=0, nullable=False)
     status = db.Column(db.String(20), default="alive", nullable=False)
+    inventory_json = db.Column(db.Text, default="{}", nullable=False)
 
     user = db.relationship("User", back_populates="characters")
     attributes = db.relationship("CharacterAttribute", back_populates="character", uselist=False, cascade="all, delete-orphan")
     resources = db.relationship("CharacterResource", back_populates="character", uselist=False, cascade="all, delete-orphan")
     skills = db.relationship("CharacterSkill", back_populates="character", cascade="all, delete-orphan")
-    inventory = db.relationship("CharacterInventory", back_populates="character", cascade="all, delete-orphan")
     campaigns = db.relationship("Campaign", back_populates="character", cascade="all, delete-orphan")
 
 
@@ -306,23 +306,6 @@ class CampaignItem(db.Model, TimestampMixin):
     is_generated = db.Column(db.Boolean, default=False, nullable=False)
 
     campaign = db.relationship("Campaign", back_populates="items")
-
-
-class CharacterInventory(db.Model):
-    __tablename__ = "character_inventory"
-
-    id = db.Column(db.Integer, primary_key=True)
-    character_id = db.Column(db.Integer, db.ForeignKey("characters.id"), nullable=False)
-    campaign_item_id = db.Column(db.Integer, db.ForeignKey("campaign_items.id"))
-    item_definition_id = db.Column(db.Integer, db.ForeignKey("item_definitions.id"))
-    quantity = db.Column(db.Integer, default=1, nullable=False)
-    is_equipped = db.Column(db.Boolean, default=False, nullable=False)
-    equipped_slot = db.Column(db.String(40))
-    durability_current = db.Column(db.Integer)
-    durability_max = db.Column(db.Integer)
-    acquired_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-    character = db.relationship("Character", back_populates="inventory")
 
 
 class Merchant(db.Model):

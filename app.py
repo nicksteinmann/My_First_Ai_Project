@@ -6,6 +6,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from services.llm_service import build_client, get_provider_config, check_provider_availability
 from services.tools.state_tools import STATE_TOOL_DEFINITIONS, execute_state_tool
+from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
+from services.inventory.service import get_inventory, add_inventory_item
 from data.character_presets import RACES, CLASSES
 from models import (
     db,
@@ -18,9 +20,6 @@ from models import (
     CampaignState,
     CampaignLocation,
     CampaignQuest,
-    CharacterInventory,
-    ItemDefinition,
-    CampaignItem,
     WorldTemplate,
     StoryMessage,
 )
@@ -109,66 +108,88 @@ def create_app():
         db.session.commit()
         return world
 
-    def get_or_create_item_definition(name, item_type, rarity, description, value_base, weight, slot_type=None):
-        item = ItemDefinition.query.filter_by(name=name).first()
-        if item:
-            return item
+    def _round_inventory_value(value):
+        return round(float(value), 2)
 
-        item = ItemDefinition(
-            name=name,
-            item_type=item_type,
-            rarity=rarity,
-            description=description,
-            value_base=value_base,
-            weight=weight,
-            slot_type=slot_type,
-            is_template_item=True,
-        )
-        db.session.add(item)
-        db.session.commit()
-        return item
+    def _build_item_label(item):
+        quantity = int(item.get("quantity", 1))
+        name = item.get("name", "Unknown Item")
+        return f"{name} x{quantity}" if quantity > 1 else name
 
-    def get_character_inventory_lists(character_id):
-        inventory_rows = (
-            CharacterInventory.query
-            .filter_by(character_id=character_id)
-            .order_by(CharacterInventory.id.asc())
-            .all()
-        )
+    def get_character_inventory_data(character_id):
+        if not character_id:
+            return {
+                "containers": [],
+                "equipment": [],
+                "inventory": [],
+                "inventory_summary": "Leer",
+                "total_weight": 0.0,
+            }
 
-        item_definition_ids = [row.item_definition_id for row in inventory_rows if row.item_definition_id]
-        campaign_item_ids = [row.campaign_item_id for row in inventory_rows if row.campaign_item_id]
+        inventory_blob = get_inventory(character_id)
+        raw_containers = inventory_blob.get("inventory", {}).get("containers", [])
 
-        item_definitions = {}
-        if item_definition_ids:
-            defs = ItemDefinition.query.filter(ItemDefinition.id.in_(item_definition_ids)).all()
-            item_definitions = {item.id: item for item in defs}
+        serialized_containers = []
+        flat_inventory_items = []
+        total_weight = 0.0
 
-        campaign_items = {}
-        if campaign_item_ids:
-            items = CampaignItem.query.filter(CampaignItem.id.in_(campaign_item_ids)).all()
-            campaign_items = {item.id: item for item in items}
+        for container in raw_containers:
+            serialized_items = []
+            used_volume = 0.0
+            container_weight = 0.0
 
-        equipment = []
-        inventory = []
+            for item in container.get("items", []):
+                quantity = int(item.get("quantity", 1))
+                item_volume = float(item.get("volume", 0))
+                item_weight = float(item.get("weight", 0))
 
-        for row in inventory_rows:
-            item_name = "Unknown Item"
+                total_item_volume = item_volume * quantity
+                total_item_weight = item_weight * quantity
 
-            if row.item_definition_id and row.item_definition_id in item_definitions:
-                item_name = item_definitions[row.item_definition_id].name
-            elif row.campaign_item_id and row.campaign_item_id in campaign_items:
-                item_name = campaign_items[row.campaign_item_id].name
+                used_volume += total_item_volume
+                container_weight += total_item_weight
+                total_weight += total_item_weight
 
-            if row.quantity and row.quantity > 1:
-                item_name = f"{item_name} x{row.quantity}"
+                serialized_item = {
+                    "item_id": item.get("item_id"),
+                    "name": item.get("name", "Unknown Item"),
+                    "description": item.get("description", ""),
+                    "size": item.get("size", "small"),
+                    "volume": _round_inventory_value(item_volume),
+                    "weight": _round_inventory_value(item_weight),
+                    "quantity": quantity,
+                    "stackable": bool(item.get("stackable", False)),
+                    "hand_usage": item.get("hand_usage", "none"),
+                    "item_type": item.get("item_type"),
+                    "display_name": _build_item_label(item),
+                    "total_volume": _round_inventory_value(total_item_volume),
+                    "total_weight": _round_inventory_value(total_item_weight),
+                }
+                serialized_items.append(serialized_item)
+                flat_inventory_items.append(serialized_item["display_name"])
 
-            if row.is_equipped:
-                equipment.append(item_name)
-            else:
-                inventory.append(item_name)
+            max_volume = float(container.get("max_volume", 0))
 
-        return equipment, inventory
+            serialized_containers.append({
+                "container_id": container.get("container_id"),
+                "name": container.get("name", "Unnamed Container"),
+                "source": container.get("source", "base"),
+                "source_item_id": container.get("source_item_id"),
+                "max_volume": _round_inventory_value(max_volume),
+                "used_volume": _round_inventory_value(used_volume),
+                "available_volume": _round_inventory_value(max_volume - used_volume),
+                "max_item_size": container.get("max_item_size", "small"),
+                "total_weight": _round_inventory_value(container_weight),
+                "items": serialized_items,
+            })
+
+        return {
+            "containers": serialized_containers,
+            "equipment": [],
+            "inventory": flat_inventory_items,
+            "inventory_summary": ", ".join(flat_inventory_items) if flat_inventory_items else "Leer",
+            "total_weight": _round_inventory_value(total_weight),
+        }
 
     def get_recent_story_messages(campaign_id, limit=12):
         messages = (
@@ -225,7 +246,7 @@ def create_app():
         campaign = get_active_campaign_for_character(character.id)
         current_location = get_current_campaign_location(campaign)
         active_quest = get_active_campaign_quest(campaign)
-        equipment_items, inventory_items = get_character_inventory_lists(character.id)
+        inventory_data = get_character_inventory_data(character.id)
 
         hp_current = resources.hp_current if resources else 0
         hp_max = resources.hp_max if resources else 0
@@ -269,8 +290,11 @@ def create_app():
                 "active_quest": active_quest.title if active_quest else "No active quest",
                 "active_quest_description": active_quest.description if active_quest else ""
             },
-            "equipment": equipment_items,
-            "inventory": inventory_items
+            "equipment": inventory_data["equipment"],
+            "inventory": inventory_data["inventory"],
+            "inventory_summary": inventory_data["inventory_summary"],
+            "inventory_total_weight": inventory_data["total_weight"],
+            "inventory_containers": inventory_data["containers"]
         }
 
     def get_active_character():
@@ -430,7 +454,7 @@ def create_app():
             campaign = get_active_campaign_for_character(character.id)
             current_location = get_current_campaign_location(campaign)
             active_quest = get_active_campaign_quest(campaign)
-            equipment_items, inventory_items = get_character_inventory_lists(character.id)
+            inventory_data = get_character_inventory_data(character.id)
 
             completed_quests_count = 0
             campaigns_count = Campaign.query.filter_by(character_id=character.id).count()
@@ -461,8 +485,11 @@ def create_app():
                 "quest": active_quest.title if active_quest else "No active quest",
                 "completed_quests": completed_quests_count,
                 "campaigns": campaigns_count,
-                "equipment": equipment_items,
-                "inventory": inventory_items,
+                "equipment": inventory_data["equipment"],
+                "inventory": inventory_data["inventory"],
+                "inventory_summary": inventory_data["inventory_summary"],
+                "inventory_total_weight": inventory_data["total_weight"],
+                "inventory_containers": inventory_data["containers"],
                 "skill_1": attributes.strength if attributes else 0,
                 "skill_2": attributes.dexterity if attributes else 0,
                 "skill_3": attributes.intelligence if attributes else 0,
@@ -623,77 +650,83 @@ def create_app():
             db.session.add(start_state)
             db.session.commit()
 
-            rusty_sword = get_or_create_item_definition(
-                name="Rusty Sword",
-                item_type="weapon",
-                rarity="common",
-                description="A worn but usable sword.",
-                value_base=15,
-                weight=4,
-                slot_type="weapon_main"
-            )
+            starter_items = [
+                {
+                    "item": {
+                        "item_id": "starter_rusty_sword",
+                        "name": "Rusty Sword",
+                        "description": "A worn but usable sword.",
+                        "size": "medium",
+                        "volume": 2.0,
+                        "weight": 4.0,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "one_hand",
+                        "item_type": "weapon",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_cloth_armor",
+                        "name": "Cloth Armor",
+                        "description": "Simple travel clothing with minimal protection.",
+                        "size": "medium",
+                        "volume": 3.0,
+                        "weight": 3.0,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "armor",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_torch",
+                        "name": "Torch",
+                        "description": "A simple torch for dark places.",
+                        "size": "small",
+                        "volume": 1.0,
+                        "weight": 1.0,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "one_hand",
+                        "item_type": "utility",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_bread",
+                        "name": "Bread",
+                        "description": "A stale but edible loaf of bread.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": True,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+            ]
 
-            cloth_armor = get_or_create_item_definition(
-                name="Cloth Armor",
-                item_type="armor",
-                rarity="common",
-                description="Simple travel clothing with minimal protection.",
-                value_base=10,
-                weight=3,
-                slot_type="armor_body"
-            )
+            for starter_item in starter_items:
+                result = add_inventory_item(
+                    character_id=new_character.id,
+                    item=starter_item["item"],
+                    quantity=starter_item["quantity"],
+                    container_id=starter_item["container_id"],
+                )
 
-            torch_item = get_or_create_item_definition(
-                name="Torch",
-                item_type="utility",
-                rarity="common",
-                description="A simple torch for dark places.",
-                value_base=2,
-                weight=1,
-                slot_type=None
-            )
-
-            bread_item = get_or_create_item_definition(
-                name="Bread",
-                item_type="consumable",
-                rarity="common",
-                description="A stale but edible loaf of bread.",
-                value_base=1,
-                weight=1,
-                slot_type=None
-            )
-
-            db.session.add(CharacterInventory(
-                character_id=new_character.id,
-                item_definition_id=rusty_sword.id,
-                quantity=1,
-                is_equipped=True,
-                equipped_slot="weapon_main"
-            ))
-
-            db.session.add(CharacterInventory(
-                character_id=new_character.id,
-                item_definition_id=cloth_armor.id,
-                quantity=1,
-                is_equipped=True,
-                equipped_slot="armor_body"
-            ))
-
-            db.session.add(CharacterInventory(
-                character_id=new_character.id,
-                item_definition_id=torch_item.id,
-                quantity=1,
-                is_equipped=False
-            ))
-
-            db.session.add(CharacterInventory(
-                character_id=new_character.id,
-                item_definition_id=bread_item.id,
-                quantity=1,
-                is_equipped=False
-            ))
-
-            db.session.commit()
+                if not result.success:
+                    raise ValueError(result.message)
 
             session["active_character_id"] = new_character.id
             flash("Character created successfully.", "success")
@@ -791,7 +824,7 @@ def create_app():
                 campaign = get_active_campaign_for_character(character.id)
                 current_location = get_current_campaign_location(campaign)
                 active_quest = get_active_campaign_quest(campaign)
-                equipment_items, inventory_items = get_character_inventory_lists(character.id)
+                inventory_data = get_character_inventory_data(character.id)
 
                 serialized_characters.append({
                     "id": character.id,
@@ -813,8 +846,11 @@ def create_app():
                     "location": current_location.name if current_location else "Unknown",
                     "time": campaign.current_ingame_time if campaign else "Unknown",
                     "quest": active_quest.title if active_quest else "No active quest",
-                    "equipment": equipment_items,
-                    "inventory": inventory_items
+                    "equipment": inventory_data["equipment"],
+                    "inventory": inventory_data["inventory"],
+                    "inventory_summary": inventory_data["inventory_summary"],
+                    "inventory_total_weight": inventory_data["total_weight"],
+                    "inventory_containers": inventory_data["containers"]
                 })
 
             community_users.append({
@@ -909,7 +945,7 @@ Aktiver Charakter:
 - Aktive Quest: {active_character['current_state']['active_quest']}
 - Questbeschreibung: {active_character['current_state']['active_quest_description']}
 - Ausrüstung: {', '.join(active_character['equipment']) if active_character['equipment'] else 'Keine'}
-- Inventar: {', '.join(active_character['inventory']) if active_character['inventory'] else 'Leer'}
+- Inventar: {active_character['inventory_summary']}
 
 Wichtige Regeln:
 - Bleibe in der bestehenden Szene und setze die Geschichte fort.
@@ -959,7 +995,7 @@ If you generate tool calls:
             first_response = client.chat.completions.create(
                 model=cfg["model"],
                 messages=messages,
-                tools=STATE_TOOL_DEFINITIONS,
+                tools=STATE_TOOL_DEFINITIONS + INVENTORY_TOOL_DEFINITIONS,
                 tool_choice="auto",
                 temperature=0.7,
                 max_tokens=500,
@@ -1043,11 +1079,18 @@ If you generate tool calls:
                         if "quest_description" in normalized_tool_args and "description" not in normalized_tool_args:
                             normalized_tool_args["description"] = normalized_tool_args["quest_description"]
 
-                    tool_result = execute_state_tool(
-                        campaign_id=campaign.id,
-                        tool_name=normalized_tool_name,
-                        arguments=normalized_tool_args
-                    )
+                    if normalized_tool_name in [t["function"]["name"] for t in STATE_TOOL_DEFINITIONS]:
+                        tool_result = execute_state_tool(
+                            campaign_id=campaign.id,
+                            tool_name=normalized_tool_name,
+                            arguments=normalized_tool_args
+                        )
+                    else:
+                        tool_result = execute_inventory_tool(
+                            character_id=active_character["id"],
+                            tool_name=normalized_tool_name,
+                            arguments=normalized_tool_args
+                        )
 
                     assistant_tool_message["tool_calls"].append({
                         "id": tool_call_id,

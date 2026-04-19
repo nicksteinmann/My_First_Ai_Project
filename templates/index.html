@@ -141,11 +141,46 @@
                 </ul>
 
                 <h3>Inventory</h3>
-                <ul class="simple-list">
-                    {% for item in active_character.inventory %}
-                        <li>{{ item }}</li>
-                    {% endfor %}
-                </ul>
+
+                <div id="inventory-container-root">
+                    {% if active_character.inventory_containers %}
+                        {% for container in active_character.inventory_containers %}
+                            <div class="inventory-container">
+
+                                <div class="inventory-container-header">
+                                    <strong>{{ container.name }}</strong>
+                                    <span class="muted-text">({{ container.container_id }})</span>
+                                </div>
+
+                                <div class="inventory-container-stats">
+                                    <span>Size: {{ container.max_item_size }}</span>
+                                    <span>Volume: {{ container.used_volume }} / {{ container.max_volume }}</span>
+                                    <span>Weight: {{ container.total_weight }}</span>
+                                </div>
+
+                                {% if container["items"] %}
+                                    <ul class="inventory-item-list">
+                                        {% for item in container["items"] %}
+                                            <li class="inventory-item">
+                                                <strong>{{ item.display_name }}</strong>
+                                                <div class="inventory-item-details">
+                                                    <span>Size: {{ item.size }}</span>
+                                                    <span>Vol: {{ item.total_volume }}</span>
+                                                    <span>Weight: {{ item.total_weight }}</span>
+                                                </div>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <p class="muted-text">Empty</p>
+                                {% endif %}
+
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="muted-text">No inventory</p>
+                    {% endif %}
+                </div>
             </section>
         </div>
     </section>
@@ -197,7 +232,7 @@
         }
     }
 
-    function updateAdventureState(character) {
+        function updateAdventureState(character) {
         if (!character || !character.current_state) return;
 
         const locationEl = document.getElementById("state-location");
@@ -214,6 +249,53 @@
 
         if (questEl) {
             questEl.innerHTML = `<strong>📜 Quest:</strong> ${character.current_state.active_quest}`;
+        }
+
+        const inventoryRoot = document.getElementById("inventory-container-root");
+
+        if (inventoryRoot && character.inventory_containers) {
+            let html = "";
+
+            character.inventory_containers.forEach(container => {
+                html += `
+                    <div class="inventory-container">
+                        <div class="inventory-container-header">
+                            <strong>${container.name}</strong>
+                            <span class="muted-text">(${container.container_id})</span>
+                        </div>
+
+                        <div class="inventory-container-stats">
+                            <span>Size: ${container.max_item_size}</span>
+                            <span>Volume: ${container.used_volume} / ${container.max_volume}</span>
+                            <span>Weight: ${container.total_weight}</span>
+                        </div>
+                `;
+
+                if (container.items && container.items.length > 0) {
+                    html += `<ul class="inventory-item-list">`;
+
+                    container.items.forEach(item => {
+                        html += `
+                            <li class="inventory-item">
+                                <strong>${item.display_name}</strong>
+                                <div class="inventory-item-details">
+                                    <span>Size: ${item.size}</span>
+                                    <span>Vol: ${item.total_volume}</span>
+                                    <span>Weight: ${item.total_weight}</span>
+                                </div>
+                            </li>
+                        `;
+                    });
+
+                    html += `</ul>`;
+                } else {
+                    html += `<p class="muted-text">Empty</p>`;
+                }
+
+                html += `</div>`;
+            });
+
+            inventoryRoot.innerHTML = html;
         }
     }
 
