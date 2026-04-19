@@ -55,9 +55,9 @@ class Character(db.Model, TimestampMixin):
     avatar_path = db.Column(db.String(255))
     level = db.Column(db.Integer, default=1, nullable=False)
     xp = db.Column(db.Integer, default=0, nullable=False)
-    gold = db.Column(db.Integer, default=0, nullable=False)
     status = db.Column(db.String(20), default="alive", nullable=False)
     inventory_json = db.Column(db.Text, default="{}", nullable=False)
+    currency_json = db.Column(db.JSON, default=dict, nullable=False)
 
     user = db.relationship("User", back_populates="characters")
     attributes = db.relationship("CharacterAttribute", back_populates="character", uselist=False, cascade="all, delete-orphan")

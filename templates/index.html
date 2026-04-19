@@ -46,7 +46,11 @@
                     <p><strong>{{ active_character.race }}</strong> · {{ active_character.class_name }}</p>
                     <p><strong>Level:</strong> {{ active_character.level }}</p>
                     <p><strong>Status:</strong> {{ active_character.status }}</p>
-                    <p><strong>Gold:</strong> {{ active_character.stats.gold }}</p>
+                    <p id="state-currency"><strong>💰 Currency:</strong>
+                        {{ active_character.currency.gold }}g /
+                        {{ active_character.currency.silver }}s /
+                        {{ active_character.currency.copper }}c
+                    </p>
                 </div>
             </div>
 
@@ -238,6 +242,7 @@
         const locationEl = document.getElementById("state-location");
         const timeEl = document.getElementById("state-time");
         const questEl = document.getElementById("state-quest");
+        const currencyEl = document.getElementById("state-currency");
 
         if (locationEl) {
             locationEl.innerHTML = `<strong>📍 Location:</strong> ${character.current_state.location}`;
@@ -249,6 +254,10 @@
 
         if (questEl) {
             questEl.innerHTML = `<strong>📜 Quest:</strong> ${character.current_state.active_quest}`;
+        }
+
+        if (currencyEl && character.currency) {
+            currencyEl.innerHTML = `<strong>💰 Currency:</strong> ${character.currency.gold}g / ${character.currency.silver}s / ${character.currency.copper}c`;
         }
 
         const inventoryRoot = document.getElementById("inventory-container-root");

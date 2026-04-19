@@ -72,7 +72,11 @@
                             <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
                             <p><strong>Level:</strong> {{ character.level }}</p>
                             <p><strong>Status:</strong> {{ character.status }}</p>
-                            <p><strong>Gold:</strong> {{ character.gold }}</p>
+                            <p><strong>💰 Currency:</strong>
+                                {{ character.currency.gold }}g /
+                                {{ character.currency.silver }}s /
+                                {{ character.currency.copper }}c
+                            </p>
 
                             <div class="entry-actions">
                                 <form method="POST" action="{{ url_for('select_character', character_id=character.id) }}">

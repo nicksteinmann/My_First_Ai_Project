@@ -8,6 +8,8 @@ from services.llm_service import build_client, get_provider_config, check_provid
 from services.tools.state_tools import STATE_TOOL_DEFINITIONS, execute_state_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
 from services.inventory.service import get_inventory, add_inventory_item
+from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
+from services.currency.service import add_currency
 from data.character_presets import RACES, CLASSES
 from models import (
     db,
@@ -267,7 +269,7 @@ def create_app():
             "class_name": character.class_name,
             "level": character.level,
             "status": character.status,
-            "gold": character.gold,
+            "currency": character.currency_json,
             "portrait": "👤",
             "stats": {
                 "hp": hp_current,
@@ -276,7 +278,7 @@ def create_app():
                 "mana_max": mana_max,
                 "energy": energy_current,
                 "energy_max": energy_max,
-                "gold": character.gold
+                "currency": character.currency_json
             },
             "skills": [
                 {"icon": "⚔️", "name": "Strength", "level": strength},
@@ -472,7 +474,7 @@ def create_app():
                 "class_name": character.class_name,
                 "level": character.level,
                 "status": character.status,
-                "gold": character.gold,
+                "currency": character.currency_json,
                 "is_active": character.id == active_character_id,
                 "hp": resources.hp_current if resources else 0,
                 "max_hp": resources.hp_max if resources else 0,
@@ -564,11 +566,18 @@ def create_app():
                 description="A newly created hero",
                 level=1,
                 xp=0,
-                gold=100,
                 status="alive"
             )
             db.session.add(new_character)
             db.session.commit()
+
+
+            add_currency(
+                character_id=new_character.id,
+                gold=0,
+                silver=1,
+                copper=20
+            )
 
             new_attributes = CharacterAttribute(
                 character_id=new_character.id,
@@ -833,7 +842,7 @@ def create_app():
                     "class_name": character.class_name,
                     "level": character.level,
                     "status": character.status,
-                    "gold": character.gold,
+                    "currency": character.currency_json,
                     "hp": resources.hp_current if resources else 0,
                     "max_hp": resources.hp_max if resources else 0,
                     "mana": resources.mana_current if resources else 0,
@@ -933,45 +942,46 @@ def create_app():
         recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
 
         system_prompt = f"""
-Du bist ein Spielleiter für ein Fantasy-Textabenteuer.
+You are the Game Master of a fantasy text-based RPG.
 
-Aktiver Charakter:
+Active Character:
 - Name: {active_character['name']}
-- Klasse: {active_character['class_name']}
-- Rasse: {active_character['race']}
+- Class: {active_character['class_name']}
+- Race: {active_character['race']}
 - Level: {active_character['level']}
-- Aktueller Ort: {active_character['current_state']['location']}
-- Aktuelle Tageszeit: {active_character['current_state']['time_of_day']}
-- Aktive Quest: {active_character['current_state']['active_quest']}
-- Questbeschreibung: {active_character['current_state']['active_quest_description']}
-- Ausrüstung: {', '.join(active_character['equipment']) if active_character['equipment'] else 'Keine'}
-- Inventar: {active_character['inventory_summary']}
+- Location: {active_character['current_state']['location']}
+- Time of Day: {active_character['current_state']['time_of_day']}
+- Active Quest: {active_character['current_state']['active_quest']}
+- Quest Description: {active_character['current_state']['active_quest_description']}
+- Equipment: {', '.join(active_character['equipment']) if active_character['equipment'] else 'None'}
+- Inventory: {active_character['inventory_summary']}
+- Currency: {active_character['currency']['gold']} gold, {active_character['currency']['silver']} silver, {active_character['currency']['copper']} copper
 
-Wichtige Regeln:
-- Bleibe in der bestehenden Szene und setze die Geschichte fort.
-- Starte NICHT erneut am Kampagnenanfang, wenn bereits Verlauf vorhanden ist.
-- Wenn sich Ort, Zeit oder Quest ändern, benutze die verfügbaren Tools.
-- Erfinde KEINE bereits ausgeführten Backend-Ergebnisse.
-- Nutze Tools nur dann, wenn wirklich ein Zustandswechsel stattfindet.
-- Antworte als Spielleiter.
-- Gewalt nur moderat beschreiben.
-- Erkenne die Sprache, die der User verwendet und antworte in der gleichen Sprache
-WICHTIG:
-- Nutze NUR die definierten Tools.
-- Nutze KEINE XML, KEINE Tags, KEINE eigenen Formate.
-- Verwende ausschließlich echtes Tool Calling.
-- Erfinde keine Toolnamen.
-- Wenn du ein Tool nutzt, dann IMMER über tool_calls.
--Wenn sich der Ort ändert, MUSST du update_location aufrufen.
-If you generate tool calls:
-- DO NOT write any text explanation before or after
-- DO NOT use XML or DSML tags
-- ONLY return valid tool_calls
-WICHTIG:
-Wenn eine Aktion ein Item verändert (nehmen, ablegen, essen, benutzen),
-MUSS ein Tool-Call ausgeführt werden.
+Rules:
+- Continue the current scene. Do NOT restart the story.
+- Stay consistent with the established world and state.
+- Respond in the same language as the user.
+- You are the narrator. Do not break immersion.
+- Do not invent results that should be handled by the backend.
 
-Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
+Tool Usage:
+- Only use the provided tools.
+- Never invent tool names.
+- Only call tools when a real state change happens.
+- If a tool is required, you MUST call it.
+- If no valid tool exists, the action must NOT be executed.
+
+State Changes:
+- Use state tools for location, time, or quest updates.
+- Use inventory tools for any item interaction (take, drop, use, consume).
+- Use currency tools when money is gained, spent, lost, or received.
+    - Use add_currency for gains
+    - Use remove_currency for spending or loss
+
+Tool Call Format:
+- ONLY return valid tool_calls when calling a tool
+- Do NOT include any text before or after tool_calls
+- Do NOT use XML, DSML, or any custom formatting
 """
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -1000,7 +1010,7 @@ Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
             first_response = client.chat.completions.create(
                 model=cfg["model"],
                 messages=messages,
-                tools=STATE_TOOL_DEFINITIONS + INVENTORY_TOOL_DEFINITIONS,
+                tools=STATE_TOOL_DEFINITIONS + INVENTORY_TOOL_DEFINITIONS + CURRENCY_TOOL_DEFINITIONS,
                 tool_choice="auto",
                 temperature=0.7,
                 max_tokens=500,
@@ -1053,8 +1063,10 @@ Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
                     valid_tool_names = {
                         *(t["function"]["name"] for t in STATE_TOOL_DEFINITIONS),
                         *(t["function"]["name"] for t in INVENTORY_TOOL_DEFINITIONS),
+                        *(t["function"]["name"] for t in CURRENCY_TOOL_DEFINITIONS),
                         "change_location",
                         "update_active_quest",
+                        "update_currency",
                     }
 
                     filtered_fake_calls = [
@@ -1126,6 +1138,35 @@ Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
                     normalized_tool_name = tool_name
                     normalized_tool_args = dict(tool_args)
 
+                    if normalized_tool_name == "update_currency":
+                        gold_value = int(normalized_tool_args.get("gold", 0))
+                        silver_value = int(normalized_tool_args.get("silver", 0))
+                        copper_value = int(normalized_tool_args.get("copper", 0))
+
+                        current_currency = active_character.get("currency", {}) or {}
+                        current_gold = int(current_currency.get("gold", 0))
+                        current_silver = int(current_currency.get("silver", 0))
+                        current_copper = int(current_currency.get("copper", 0))
+
+                        delta_gold = gold_value - current_gold
+                        delta_silver = silver_value - current_silver
+                        delta_copper = copper_value - current_copper
+
+                        if delta_gold > 0 or delta_silver > 0 or delta_copper > 0:
+                            normalized_tool_name = "add_currency"
+                            normalized_tool_args = {
+                                "gold": max(delta_gold, 0),
+                                "silver": max(delta_silver, 0),
+                                "copper": max(delta_copper, 0),
+                            }
+                        else:
+                            normalized_tool_name = "remove_currency"
+                            normalized_tool_args = {
+                                "gold": abs(min(delta_gold, 0)),
+                                "silver": abs(min(delta_silver, 0)),
+                                "copper": abs(min(delta_copper, 0)),
+                            }
+
                     if normalized_tool_name == "change_location":
                         normalized_tool_name = "update_location"
 
@@ -1143,18 +1184,36 @@ Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
                         if "quest_description" in normalized_tool_args and "description" not in normalized_tool_args:
                             normalized_tool_args["description"] = normalized_tool_args["quest_description"]
 
-                    if normalized_tool_name in [t["function"]["name"] for t in STATE_TOOL_DEFINITIONS]:
+                    state_tool_names = [t["function"]["name"] for t in STATE_TOOL_DEFINITIONS]
+                    inventory_tool_names = [t["function"]["name"] for t in INVENTORY_TOOL_DEFINITIONS]
+                    currency_tool_names = [t["function"]["name"] for t in CURRENCY_TOOL_DEFINITIONS]
+
+                    if normalized_tool_name in state_tool_names:
                         tool_result = execute_state_tool(
                             campaign_id=campaign.id,
                             tool_name=normalized_tool_name,
                             arguments=normalized_tool_args
                         )
-                    else:
+
+                    elif normalized_tool_name in inventory_tool_names:
                         tool_result = execute_inventory_tool(
                             character_id=active_character["id"],
                             tool_name=normalized_tool_name,
                             arguments=normalized_tool_args
                         )
+
+                    elif normalized_tool_name in currency_tool_names:
+                        tool_result = execute_currency_tool(
+                            character_id=active_character["id"],
+                            tool_name=normalized_tool_name,
+                            arguments=normalized_tool_args
+                        )
+
+                    else:
+                        tool_result = {
+                            "success": False,
+                            "message": f"Unknown tool: {normalized_tool_name}"
+                        }
 
                     assistant_tool_message["tool_calls"].append({
                         "id": tool_call_id,
@@ -1176,6 +1235,8 @@ Wenn kein Tool-Call möglich ist, darf die Aktion NICHT durchgeführt werden.
                 second_response = client.chat.completions.create(
                     model=cfg["model"],
                     messages=second_messages,
+                    tools=STATE_TOOL_DEFINITIONS + INVENTORY_TOOL_DEFINITIONS + CURRENCY_TOOL_DEFINITIONS,
+                    tool_choice="auto",
                     temperature=0.7,
                     max_tokens=500,
                 )
