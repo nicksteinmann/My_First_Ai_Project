@@ -16,6 +16,7 @@ from services.story import (
     serialize_story_messages_for_template,
     build_story_history_text,
 )
+from services.prompt_builder import build_game_system_prompt
 from data.character_presets import RACES, CLASSES
 from models import (
     db,
@@ -769,48 +770,7 @@ def create_app():
 
         recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
 
-        system_prompt = f"""
-You are the Game Master of a fantasy text-based RPG.
-
-Active Character:
-- Name: {active_character['name']}
-- Class: {active_character['class_name']}
-- Race: {active_character['race']}
-- Level: {active_character['level']}
-- Location: {active_character['current_state']['location']}
-- Time of Day: {active_character['current_state']['time_of_day']}
-- Active Quest: {active_character['current_state']['active_quest']}
-- Quest Description: {active_character['current_state']['active_quest_description']}
-- Equipment: {', '.join(active_character['equipment']) if active_character['equipment'] else 'None'}
-- Inventory: {active_character['inventory_summary']}
-- Currency: {active_character['currency']['gold']} gold, {active_character['currency']['silver']} silver, {active_character['currency']['copper']} copper
-
-Rules:
-- Continue the current scene. Do NOT restart the story.
-- Stay consistent with the established world and state.
-- Respond in the same language as the user.
-- You are the narrator. Do not break immersion.
-- Do not invent results that should be handled by the backend.
-
-Tool Usage:
-- Only use the provided tools.
-- Never invent tool names.
-- Only call tools when a real state change happens.
-- If a tool is required, you MUST call it.
-- If no valid tool exists, the action must NOT be executed.
-
-State Changes:
-- Use state tools for location, time, or quest updates.
-- Use inventory tools for any item interaction (take, drop, use, consume).
-- Use currency tools when money is gained, spent, lost, or received.
-    - Use add_currency for gains
-    - Use remove_currency for spending or loss
-
-Tool Call Format:
-- ONLY return valid tool_calls when calling a tool
-- Do NOT include any text before or after tool_calls
-- Do NOT use XML, DSML, or any custom formatting
-"""
+        system_prompt = build_game_system_prompt(active_character)
 
         messages = [{"role": "system", "content": system_prompt}]
 
