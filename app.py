@@ -7,7 +7,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from services.llm_service import build_client, get_provider_config, check_provider_availability
 from services.tools.state_tools import STATE_TOOL_DEFINITIONS, execute_state_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
-from services.inventory.service import get_inventory, add_inventory_item
+from services.inventory.service import add_inventory_item
+from services.serializers import get_character_inventory_data, serialize_character
 from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
 from services.currency.service import add_currency
 from data.character_presets import RACES, CLASSES
@@ -110,88 +111,6 @@ def create_app():
         db.session.commit()
         return world
 
-    def _round_inventory_value(value):
-        return round(float(value), 2)
-
-    def _build_item_label(item):
-        quantity = int(item.get("quantity", 1))
-        name = item.get("name", "Unknown Item")
-        return f"{name} x{quantity}" if quantity > 1 else name
-
-    def get_character_inventory_data(character_id):
-        if not character_id:
-            return {
-                "containers": [],
-                "equipment": [],
-                "inventory": [],
-                "inventory_summary": "Leer",
-                "total_weight": 0.0,
-            }
-
-        inventory_blob = get_inventory(character_id)
-        raw_containers = inventory_blob.get("inventory", {}).get("containers", [])
-
-        serialized_containers = []
-        flat_inventory_items = []
-        total_weight = 0.0
-
-        for container in raw_containers:
-            serialized_items = []
-            used_volume = 0.0
-            container_weight = 0.0
-
-            for item in container.get("items", []):
-                quantity = int(item.get("quantity", 1))
-                item_volume = float(item.get("volume", 0))
-                item_weight = float(item.get("weight", 0))
-
-                total_item_volume = item_volume * quantity
-                total_item_weight = item_weight * quantity
-
-                used_volume += total_item_volume
-                container_weight += total_item_weight
-                total_weight += total_item_weight
-
-                serialized_item = {
-                    "item_id": item.get("item_id"),
-                    "name": item.get("name", "Unknown Item"),
-                    "description": item.get("description", ""),
-                    "size": item.get("size", "small"),
-                    "volume": _round_inventory_value(item_volume),
-                    "weight": _round_inventory_value(item_weight),
-                    "quantity": quantity,
-                    "stackable": bool(item.get("stackable", False)),
-                    "hand_usage": item.get("hand_usage", "none"),
-                    "item_type": item.get("item_type"),
-                    "display_name": _build_item_label(item),
-                    "total_volume": _round_inventory_value(total_item_volume),
-                    "total_weight": _round_inventory_value(total_item_weight),
-                }
-                serialized_items.append(serialized_item)
-                flat_inventory_items.append(serialized_item["display_name"])
-
-            max_volume = float(container.get("max_volume", 0))
-
-            serialized_containers.append({
-                "container_id": container.get("container_id"),
-                "name": container.get("name", "Unnamed Container"),
-                "source": container.get("source", "base"),
-                "source_item_id": container.get("source_item_id"),
-                "max_volume": _round_inventory_value(max_volume),
-                "used_volume": _round_inventory_value(used_volume),
-                "available_volume": _round_inventory_value(max_volume - used_volume),
-                "max_item_size": container.get("max_item_size", "small"),
-                "total_weight": _round_inventory_value(container_weight),
-                "items": serialized_items,
-            })
-
-        return {
-            "containers": serialized_containers,
-            "equipment": [],
-            "inventory": flat_inventory_items,
-            "inventory_summary": ", ".join(flat_inventory_items) if flat_inventory_items else "Leer",
-            "total_weight": _round_inventory_value(total_weight),
-        }
 
     def get_recent_story_messages(campaign_id, limit=12):
         messages = (
@@ -242,62 +161,6 @@ def create_app():
 
         return "\n".join(lines)
 
-    def serialize_character(character):
-        attributes = character.attributes
-        resources = character.resources
-        campaign = get_active_campaign_for_character(character.id)
-        current_location = get_current_campaign_location(campaign)
-        active_quest = get_active_campaign_quest(campaign)
-        inventory_data = get_character_inventory_data(character.id)
-
-        hp_current = resources.hp_current if resources else 0
-        hp_max = resources.hp_max if resources else 0
-        mana_current = resources.mana_current if resources else 0
-        mana_max = resources.mana_max if resources else 0
-        energy_current = resources.energy_current if resources else 0
-        energy_max = resources.energy_max if resources else 0
-
-        strength = attributes.strength if attributes else 0
-        dexterity = attributes.dexterity if attributes else 0
-        intelligence = attributes.intelligence if attributes else 0
-        perception = attributes.perception if attributes else 0
-
-        return {
-            "id": character.id,
-            "name": character.name,
-            "race": character.race,
-            "class_name": character.class_name,
-            "level": character.level,
-            "status": character.status,
-            "currency": character.currency_json,
-            "portrait": "👤",
-            "stats": {
-                "hp": hp_current,
-                "hp_max": hp_max,
-                "mana": mana_current,
-                "mana_max": mana_max,
-                "energy": energy_current,
-                "energy_max": energy_max,
-                "currency": character.currency_json
-            },
-            "skills": [
-                {"icon": "⚔️", "name": "Strength", "level": strength},
-                {"icon": "🎯", "name": "Dexterity", "level": dexterity},
-                {"icon": "🧠", "name": "Intelligence", "level": intelligence},
-                {"icon": "👁️", "name": "Perception", "level": perception},
-            ],
-            "current_state": {
-                "location": current_location.name if current_location else "Unknown",
-                "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
-                "active_quest": active_quest.title if active_quest else "No active quest",
-                "active_quest_description": active_quest.description if active_quest else ""
-            },
-            "equipment": inventory_data["equipment"],
-            "inventory": inventory_data["inventory"],
-            "inventory_summary": inventory_data["inventory_summary"],
-            "inventory_total_weight": inventory_data["total_weight"],
-            "inventory_containers": inventory_data["containers"]
-        }
 
     def get_active_character():
         if not is_logged_in():
@@ -309,7 +172,12 @@ def create_app():
         if active_character_id:
             selected_character = get_character_by_id_for_user(active_character_id, user_id)
             if selected_character:
-                return serialize_character(selected_character)
+                return serialize_character(
+                    selected_character,
+                    get_active_campaign_for_character,
+                    get_current_campaign_location,
+                    get_active_campaign_quest,
+                )
 
         characters = get_user_characters(user_id)
 
@@ -318,7 +186,12 @@ def create_app():
 
         first_character = characters[0]
         session["active_character_id"] = first_character.id
-        return serialize_character(first_character)
+        return serialize_character(
+            first_character,
+            get_active_campaign_for_character,
+            get_current_campaign_location,
+            get_active_campaign_quest,
+        )
 
     @app.route("/")
     def index():
