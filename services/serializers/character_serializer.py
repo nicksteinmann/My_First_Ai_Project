@@ -1,3 +1,4 @@
+from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
 
 
@@ -16,12 +17,15 @@ def get_character_inventory_data(character_id):
         return {
             "containers": [],
             "equipment": [],
+            "equipment_slots": [],
+            "equipment_summary": "None",
             "inventory": [],
             "inventory_summary": "Leer",
             "total_weight": 0.0,
         }
 
     inventory_blob = get_inventory(character_id)
+    equipment_data = serialize_equipment(character_id)
     raw_containers = inventory_blob.get("inventory", {}).get("containers", [])
 
     serialized_containers = []
@@ -80,7 +84,9 @@ def get_character_inventory_data(character_id):
 
     return {
         "containers": serialized_containers,
-        "equipment": [],
+        "equipment": equipment_data["labels"],
+        "equipment_slots": equipment_data["slots"],
+        "equipment_summary": equipment_data["summary"],
         "inventory": flat_inventory_items,
         "inventory_summary": ", ".join(flat_inventory_items) if flat_inventory_items else "Leer",
         "total_weight": _round_inventory_value(total_weight),
@@ -143,6 +149,8 @@ def serialize_character(
             "active_quest_description": active_quest.description if active_quest else "",
         },
         "equipment": inventory_data["equipment"],
+        "equipment_slots": inventory_data["equipment_slots"],
+        "equipment_summary": inventory_data["equipment_summary"],
         "inventory": inventory_data["inventory"],
         "inventory_summary": inventory_data["inventory_summary"],
         "inventory_total_weight": inventory_data["total_weight"],

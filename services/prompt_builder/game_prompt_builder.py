@@ -11,7 +11,7 @@ Active Character:
 - Time of Day: {active_character['current_state']['time_of_day']}
 - Active Quest: {active_character['current_state']['active_quest']}
 - Quest Description: {active_character['current_state']['active_quest_description']}
-- Equipment: {', '.join(active_character['equipment']) if active_character['equipment'] else 'None'}
+- Equipment: {active_character.get('equipment_summary', 'None')}
 - Inventory: {active_character['inventory_summary']}
 - Currency: {active_character['currency']['gold']} gold, {active_character['currency']['silver']} silver, {active_character['currency']['copper']} copper
 
@@ -32,6 +32,10 @@ Tool Usage:
 State Changes:
 - Use state tools for location, time, or quest updates.
 - Use inventory tools for any item interaction (take, drop, use, consume).
+- Use equipment tools for equipping, unequipping, or checking equipped gear.
+- Use main_hand/off_hand for held items. two_handed items occupy both hands.
+- Use belt_slot_1/belt_slot_2 for weapons or tiny/small pouches attached to an equipped belt.
+- Shields may use the backpack slot when no backpack is equipped there.
 - Use currency tools when money is gained, spent, lost, or received.
     - Use add_currency for gains
     - Use remove_currency for spending or loss

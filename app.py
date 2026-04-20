@@ -36,6 +36,7 @@ from routes import (
 )
 from services.adventure_state import STATE_TOOL_DEFINITIONS, execute_state_tool
 from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
+from services.equipment import EQUIPMENT_TOOL_DEFINITIONS, execute_equipment_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
 from services.serializers import serialize_character
 from services.story import (
@@ -257,9 +258,11 @@ def create_app() -> Flask:
         STATE_TOOL_DEFINITIONS,
         INVENTORY_TOOL_DEFINITIONS,
         CURRENCY_TOOL_DEFINITIONS,
+        EQUIPMENT_TOOL_DEFINITIONS,
         execute_state_tool,
         execute_inventory_tool,
         execute_currency_tool,
+        execute_equipment_tool,
         resolve_tool_calls,
         parse_tool_call_payload,
         normalize_tool_call,

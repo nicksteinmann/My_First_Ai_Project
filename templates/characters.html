@@ -144,11 +144,14 @@
                         <hr class="divider">
 
                         <h4>Equipment</h4>
-                        <ul class="simple-list">
-                            {% for item in character.equipment %}
-                                <li>{{ item }}</li>
+                        <div class="equipment-slot-grid compact">
+                            {% for slot in character.equipment_slots %}
+                                <div class="equipment-slot {% if slot.is_empty %}empty{% endif %}">
+                                    <span class="equipment-slot-label">{{ slot.label }}</span>
+                                    <strong>{{ slot.item if slot.item else "Empty" }}</strong>
+                                </div>
                             {% endfor %}
-                        </ul>
+                        </div>
 
                         <h4>Inventory</h4>
 
