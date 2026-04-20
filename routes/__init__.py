@@ -1,0 +1,4 @@
+from .auth_routes import register_auth_routes
+from .page_routes import register_page_routes
+from .character_routes import register_character_routes
+from .game_routes import register_game_routes
