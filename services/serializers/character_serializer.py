@@ -1,5 +1,6 @@
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
+from services.status_effects import serialize_status_effects
 
 
 def _round_inventory_value(value):
@@ -93,6 +94,12 @@ def get_character_inventory_data(character_id):
     }
 
 
+def get_character_status_effects(character_id):
+    if not character_id:
+        return []
+    return serialize_status_effects(character_id)
+
+
 def serialize_character(
     character,
     get_active_campaign_for_character,
@@ -105,6 +112,7 @@ def serialize_character(
     current_location = get_current_campaign_location(campaign)
     active_quest = get_active_campaign_quest(campaign)
     inventory_data = get_character_inventory_data(character.id)
+    status_effects = get_character_status_effects(character.id)
 
     hp_current = resources.hp_current if resources else 0
     hp_max = resources.hp_max if resources else 0
@@ -125,6 +133,8 @@ def serialize_character(
         "class_name": character.class_name,
         "level": character.level,
         "status": character.status,
+        "status_effects": status_effects,
+        "status_effect_summary": ", ".join(effect["name"] for effect in status_effects) if status_effects else "None",
         "currency": character.currency_json,
         "portrait": "👤",
         "stats": {

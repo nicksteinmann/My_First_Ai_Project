@@ -72,6 +72,15 @@
                             <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
                             <p><strong>Level:</strong> {{ character.level }}</p>
                             <p><strong>Status:</strong> {{ character.status }}</p>
+                            <div class="status-effect-row compact">
+                                {% if character.status_effects %}
+                                    {% for effect in character.status_effects %}
+                                        <span class="status-effect-chip">{{ effect.name }} ({{ effect.duration_remaining }})</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="muted-text">No status effects</span>
+                                {% endif %}
+                            </div>
                             <p><strong>💰 Currency:</strong>
                                 {{ character.currency.gold }}g /
                                 {{ character.currency.silver }}s /
