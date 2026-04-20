@@ -111,6 +111,8 @@ def register_page_routes(
                     "time": campaign.current_ingame_time if campaign else "Unknown",
                     "quest": active_quest.title if active_quest else "No active quest",
                     "equipment": inventory_data["equipment"],
+                    "equipment_slots": inventory_data["equipment_slots"],
+                    "equipment_summary": inventory_data["equipment_summary"],
                     "inventory": inventory_data["inventory"],
                     "inventory_summary": inventory_data["inventory_summary"],
                     "inventory_total_weight": inventory_data["total_weight"],

@@ -1,82 +1,357 @@
 # AI Pen & Paper
 
-> ⚠️ Work in Progress – this project is actively being developed.
+> Work in progress. This project is actively being developed.
 
-A text-based AI-powered roleplaying game (RPG) prototype built with Flask, SQLAlchemy, and modern LLM APIs.
+A modular AI-powered text RPG built with Flask, SQLAlchemy, SQLite, and LLM tool calling.
 
----
+The core rule is:
 
-## 📌 Overview
+- Backend = source of truth
+- AI = narrator and decision layer
 
-This project is a personal showcase to demonstrate practical skills in:
-
-- Backend development with Flask
-- Database design using SQLAlchemy (SQLite)
-- API integration (OpenAI / DeepSeek)
-- State management for AI-driven systems
-- Building interactive AI applications
-
-The goal is to create a dynamic Pen & Paper experience where an AI acts as the game master.
+The AI may describe and decide, but persistent game state is changed only through backend tools.
 
 ---
 
-## 🎯 Vision
+## Overview
 
-The long-term goal is to build a system where:
+AI Pen & Paper is a long-term architecture and learning project for a reusable AI-driven RPG engine.
 
-- Players can create and manage characters
-- Characters have persistent stats, inventory, and progression
-- A full campaign state (location, time, quests) is stored
-- The AI generates consistent story progression based on:
-  - player actions
-  - character stats
-  - world state
-- Multiple AI providers can be used interchangeably
+The current implementation is a fantasy text RPG, but the system is intentionally modular so it can later support other genres such as survival, sci-fi, or horror.
 
 ---
 
-## ⚙️ Technologies Used
+## Tech Stack
 
 - Python 3
 - Flask
 - Flask-SQLAlchemy
+- SQLAlchemy
 - SQLite
+- OpenAI-compatible chat completions
 - OpenAI API
-- DeepSeek API (OpenAI-compatible)
+- DeepSeek API
 - HTML / CSS / JavaScript
 - python-dotenv
+- Werkzeug password hashing
 
 ---
 
-## 🤖 AI Integration
+## Core Design Philosophy
 
-The project currently supports multiple LLM providers:
+### AI responsibilities
 
-- OpenAI (GPT models)
-- DeepSeek (OpenAI-compatible)
+- Narration
+- Interpreting player intent
+- Deciding when a tool should be used
+- Continuing the scene after tool results
 
-The provider can be selected dynamically in the UI.
+### Backend responsibilities
+
+- Persistent state
+- Validation
+- Character data
+- Campaign state
+- Inventory logic
+- Equipment logic
+- Currency logic
+- Tool execution
+
+The AI must not directly modify game state. Every state change must go through validated backend tools.
 
 ---
 
-## 🚀 Getting Started
+## Architecture
 
-### 1. Clone the repository
+### Entrypoint
+
+- app.py
+
+`app.py` creates the Flask app, configures the database, defines small app-level helpers, and registers route modules.
+
+### Routes
+
+- routes/auth_routes.py
+- routes/page_routes.py
+- routes/character_routes.py
+- routes/game_routes.py
+
+### Services
+
+- services/adventure_state/
+- services/currency/
+- services/equipment/
+- services/inventory/
+- services/prompt_builder/
+- services/serializers/
+- services/story/
+- services/tools/
+
+### Data
+
+- data/character_presets.py
+- data/enemies.json
+- data/items.json
+- data/skills.json
+- data/world.json
+
+---
+
+## Implemented Systems
+
+### Authentication
+
+- User registration
+- Login / logout
+- Password hashing
+- Session handling
+
+### Character System
+
+- Persistent characters per user
+- Race and class presets
+- Attribute generation
+- Resource rows for HP, Mana, Energy, and Stamina
+- Character switching
+- Character deletion
+- Active character selection
+
+### Campaign / Adventure State
+
+Each active campaign tracks:
+
+- Current location
+- Time of day
+- Active quest
+- Quest description
+
+Tools:
+
+- update_location
+- advance_time
+- set_active_quest
+- complete_active_quest
+
+### Story Persistence
+
+- Player and assistant messages are stored per campaign
+- Recent story history is injected into each LLM turn
+- Campaign continuity is preserved across messages
+
+### Inventory System
+
+Character-based container inventory stored in `inventory_json`.
+
+Features:
+
+- Multiple containers per character
+- Container volume limits
+- Max item size per container
+- Item volume and weight
+- Stackable items
+- Hand usage metadata
+- Backend validation
+
+Tools:
+
+- get_inventory
+- add_inventory_item
+- remove_inventory_item
+
+### Equipment System
+
+MVP equipment system stored alongside inventory data in `inventory_json`.
+
+Implemented slots:
+
+- head
+- torso_clothing
+- torso_armor
+- legs_clothing
+- legs_armor
+- feet
+- gloves
+- belt
+- belt_slot_1
+- belt_slot_2
+- backpack
+- cloak
+- ring_left
+- ring_right
+- main_hand
+- off_hand
+
+Rules:
+
+- One-handed items use either `main_hand` or `off_hand`.
+- Two-handed items occupy both hands.
+- An equipped belt unlocks two attachment slots: `belt_slot_1` and `belt_slot_2`.
+- Belt attachment slots can hold weapons of any item size.
+- Belt attachment slots can hold pouch/container items only when their item size is `tiny` or `small`.
+- Shields can be equipped in the `backpack` slot when no backpack or container item is equipped there.
+- Equipped container items can add inventory containers when they define a container profile.
+- Items cannot be unequipped while their equipment-created container still contains items.
+
+Tools:
+
+- get_equipment
+- equip_item
+- unequip_item
+
+Not yet implemented:
+
+- Advanced belt attachment rules beyond the current two-slot MVP
+- More detailed belt pouch size classes
+- Stat modifiers from equipment
+- Starting gear auto-equipped on character creation
+
+### Currency System
+
+Currencies:
+
+- gold
+- silver
+- copper
+
+Conversion rule:
+
+- 1 gold = 10 silver
+- 1 silver = 50 copper
+
+Stored in `currency_json`.
+
+Tools:
+
+- get_currency
+- add_currency
+- remove_currency
+
+Note: automatic currency conversion and change-making are still future work.
+
+### AI Tool Calling
+
+The game turn pipeline supports:
+
+- Tool definitions from multiple systems
+- OpenAI-style tool calls
+- DeepSeek / DSML fallback parsing
+- Tool name normalization for some legacy model outputs
+- Multi-tool execution in one turn
+- A bounded tool loop
+- A final no-tool narration call if the model keeps requesting tools until the loop limit is reached
+
+This prevents the technical fallback text from being shown to the player after successful tool execution.
+
+---
+
+## UI
+
+Pages:
+
+- Home
+- My Characters
+- World
+- Community
+- Support
+
+Current displays:
+
+- Active character
+- Stats
+- Skills / attributes
+- Adventure chat
+- Provider selection
+- Campaign state
+- Equipment slots
+- Inventory containers
+- Currency
+- Story history
+
+---
+
+## Current State
+
+Working:
+
+- Modular Flask architecture
+- Persistent users and characters
+- Persistent campaigns
+- Story persistence
+- Tool-controlled adventure state
+- Container inventory
+- Currency system
+- Equipment MVP
+- Multi-system tool pipeline
+- UI state refresh after game turns
+
+Known limitations:
+
+- No resource tools for HP / Mana / Energy yet
+- No stat modifiers from equipment yet
+- No real skill check system yet
+- No leveling / XP flow yet
+- No combat system yet
+- No NPC system yet
+- No merchant / trading system yet
+- No structured world knowledge system yet
+- Tool calling works, but retry and failure handling are still MVP-level
+
+---
+
+## MVP Roadmap
+
+High priority:
+
+- Resource tools for HP / Mana / Energy
+- Equipment stat modifiers
+- Starting gear auto-equip
+- Advanced belt and pouch attachment rules
+- Skill checks with real gameplay impact
+- Level and XP progression
+
+Mid-term:
+
+- Merchant and trading tools
+- NPC interaction system
+- Combat system
+- Better tool retry and failure handling
+
+Long-term:
+
+- Reusable AI RPG framework
+- Genre templates
+- Better AI consistency
+- World simulation and events
+
+---
+
+## Getting Started
+
+### 1. Clone
 
 ```bash
 git clone https://github.com/nicksteinmann/My_First_Ai_Project.git
 cd AI_Pen_And_Paper
 ```
 
-### 2. Install dependencies
+### 2. Create and activate a virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Create a `.env` file
+### 4. Create a `.env` file
 
-Create a `.env` file in the project root with the following content:
+Create `.env` in the project root:
 
 ```env
 OPENAI_API_KEY=your_openai_key
@@ -86,140 +361,75 @@ OPENAI_MODEL=gpt-4.1-mini
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-### 4. Initialize and start the app
+### 5. Start the app
 
 ```bash
 python app.py
 ```
 
-Optional:
-
-```bash
-python seed_data.py
-```
-
-Open in browser:
+Open:
 
 ```text
 http://127.0.0.1:5000
 ```
 
----
+Optional seed script:
 
-## 🧱 Current Features (Implemented)
-
-### 🔐 Authentication
-- User registration
-- Login / logout
-- Password hashing using Werkzeug
-- Unique username and email validation
-
-### 👤 Character System
-- Character creation
-- Race presets
-- Class presets
-- Character deletion
-- Character switching
-- Active character selection
-
-### 📊 Character Stats
-- Strength
-- Dexterity
-- Intelligence
-- Perception
-- HP
-- Mana
-- Energy
-
-Displayed consistently across:
-- Home
-- My Characters
-- Community
-
-### 🎒 Inventory & Equipment
-- Equipment system
-- Inventory system
-- Starter gear stored in database
-- Visible in all major views
-
-### 🌍 Campaign State
-Each character has:
-
-- Location
-- Time of day
-- Active quest
-- Equipment
-- Inventory
-
-Fully database-driven (no more mock data).
-
-### 🧑‍🤝‍🧑 Community Page
-- Real users
-- Real characters
-- Real stats
-- Real inventory & equipment
-- Real campaign state
-
-### 🤖 AI Adventure Chat
-AI receives full context:
-
-- Character identity
-- Stats
-- Location
-- Time
-- Quest
-- Equipment
-- Inventory
+```bash
+python seed_data.py
+```
 
 ---
 
-## 🚧 Current Limitations
+## Environment Notes
 
-- No persistent story memory yet
-- AI resets context between messages
-- No quest completion system
-- No quest progression tracking
-- No combat system
-- No NPC system
-- No economy system
-- No world persistence
+Required environment variables:
 
----
+- OPENAI_API_KEY
+- DEEPSEEK_API_KEY
+- OPENAI_MODEL
+- DEEPSEEK_MODEL
 
-## 🔜 Next Steps
-
-### High Priority
-- Persistent story memory
-- Continuous scene progression
-- Quest progression system
-
-### Mid-Term
-- Quest objectives & completion
-- NPC interactions
-- Merchant system
-- Equipment usage
-
-### Long-Term
-- Full campaign engine
-- AI memory optimization
-- Dynamic world state
-- Multiplayer concepts
+The default provider in the game UI is DeepSeek when available.
 
 ---
 
-## 🧠 Motivation
+## Git Workflow
+
+Existing branch pattern:
+
+- feature/name
+- refactor/name
+
+Existing commit style:
+
+- feat: short description
+- fix: short description
+- refactor: short description
+
+---
+
+## Motivation
 
 This project explores:
 
-- AI + backend architecture
+- AI and backend architecture
 - Persistent game state
-- LLM integration in real systems
-- Scalable AI application design
+- LLM integration in real applications
+- Modular system design
+- Tool-based state control
+- Scalable AI game systems
 
 It serves as both a learning project and a technical showcase.
 
 ---
 
-## 📄 License
+## License
 
-This project is for educational and demonstration purposes.
+Copyright (c) 2026 Nick Steinmann
+
+All rights reserved.
+
+This project is published for educational and showcase purposes only.
+
+The code may not be used, copied, modified, or distributed for commercial purposes without explicit permission from the author.

@@ -138,11 +138,14 @@
                 <hr class="divider">
 
                 <h3>Equipment</h3>
-                <ul class="simple-list">
-                    {% for item in active_character.equipment %}
-                        <li>{{ item }}</li>
+                <div id="equipment-slot-root" class="equipment-slot-grid">
+                    {% for slot in active_character.equipment_slots %}
+                        <div class="equipment-slot {% if slot.is_empty %}empty{% endif %}">
+                            <span class="equipment-slot-label">{{ slot.label }}</span>
+                            <strong>{{ slot.item if slot.item else "Empty" }}</strong>
+                        </div>
                     {% endfor %}
-                </ul>
+                </div>
 
                 <h3>Inventory</h3>
 
@@ -261,6 +264,22 @@
         }
 
         const inventoryRoot = document.getElementById("inventory-container-root");
+        const equipmentRoot = document.getElementById("equipment-slot-root");
+
+        if (equipmentRoot && character.equipment_slots) {
+            let equipmentHtml = "";
+
+            character.equipment_slots.forEach(slot => {
+                equipmentHtml += `
+                    <div class="equipment-slot ${slot.is_empty ? "empty" : ""}">
+                        <span class="equipment-slot-label">${slot.label}</span>
+                        <strong>${slot.item || "Empty"}</strong>
+                    </div>
+                `;
+            });
+
+            equipmentRoot.innerHTML = equipmentHtml;
+        }
 
         if (inventoryRoot && character.inventory_containers) {
             let html = "";

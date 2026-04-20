@@ -446,6 +446,42 @@ textarea {
     margin-bottom: 0.5rem;
 }
 
+.equipment-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.equipment-slot-grid.compact {
+    grid-template-columns: 1fr;
+}
+
+.equipment-slot {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.45rem 0.55rem;
+}
+
+.equipment-slot.empty {
+    color: var(--muted);
+}
+
+.equipment-slot-label {
+    display: block;
+    margin-bottom: 0.15rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+}
+
+.equipment-slot strong {
+    display: block;
+    overflow-wrap: anywhere;
+    font-size: 0.88rem;
+}
+
 /* CHARACTERS */
 .character-list {
     display: flex;

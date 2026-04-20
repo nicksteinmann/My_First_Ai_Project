@@ -11,10 +11,12 @@ def run_game_turn(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    equipment_tool_definitions,
 
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
+    execute_equipment_tool,
 
     resolve_tool_calls,
     parse_tool_call_payload,
@@ -31,9 +33,8 @@ def run_game_turn(
         state_tool_definitions
         + inventory_tool_definitions
         + currency_tool_definitions
+        + equipment_tool_definitions
     )
-
-    final_text = None
 
     for round_index in range(max_tool_rounds):
 
@@ -53,6 +54,7 @@ def run_game_turn(
             state_tool_definitions,
             inventory_tool_definitions,
             currency_tool_definitions,
+            equipment_tool_definitions,
         )
 
         # -------------------------
@@ -95,9 +97,11 @@ def run_game_turn(
                 state_tool_definitions=state_tool_definitions,
                 inventory_tool_definitions=inventory_tool_definitions,
                 currency_tool_definitions=currency_tool_definitions,
+                equipment_tool_definitions=equipment_tool_definitions,
                 execute_state_tool=execute_state_tool,
                 execute_inventory_tool=execute_inventory_tool,
                 execute_currency_tool=execute_currency_tool,
+                execute_equipment_tool=execute_equipment_tool,
             )
 
             tool_result_messages.append({
@@ -110,6 +114,25 @@ def run_game_turn(
         messages.extend(tool_result_messages)
 
     # -------------------------
-    # 4. Falls max Runden erreicht
+    # 4. Falls max Runden erreicht:
+    #    Tool-Ausführung ist schon passiert, also erzwinge eine finale
+    #    Narrative ohne weitere Tools statt eines sichtbaren Technik-Fallbacks.
     # -------------------------
-    return "The situation becomes unclear after several actions."
+    messages.append({
+        "role": "system",
+        "content": (
+            "Tool execution has ended for this turn. Do not call any more tools. "
+            "Summarize the completed actions and continue the scene in the user's language."
+        )
+    })
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+    )
+
+    content = response.choices[0].message.content or ""
+    if content.strip():
+        return content
+
+    return "The actions are resolved, but the narration could not be generated."

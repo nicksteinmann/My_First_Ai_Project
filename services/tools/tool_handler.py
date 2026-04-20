@@ -118,11 +118,15 @@ def get_valid_tool_names(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    equipment_tool_definitions=None,
 ):
+    equipment_tool_definitions = equipment_tool_definitions or []
+
     return {
         *(t["function"]["name"] for t in state_tool_definitions),
         *(t["function"]["name"] for t in inventory_tool_definitions),
         *(t["function"]["name"] for t in currency_tool_definitions),
+        *(t["function"]["name"] for t in equipment_tool_definitions),
         "change_location",
         "update_active_quest",
         "update_currency",
@@ -134,6 +138,7 @@ def resolve_tool_calls(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    equipment_tool_definitions=None,
 ):
     tool_calls = first_message.tool_calls or []
 
@@ -144,6 +149,7 @@ def resolve_tool_calls(
                 state_tool_definitions,
                 inventory_tool_definitions,
                 currency_tool_definitions,
+                equipment_tool_definitions,
             )
 
             filtered_fake_calls = [
@@ -164,13 +170,16 @@ def execute_normalized_tool(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    equipment_tool_definitions,
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
+    execute_equipment_tool,
 ):
     state_tool_names = [t["function"]["name"] for t in state_tool_definitions]
     inventory_tool_names = [t["function"]["name"] for t in inventory_tool_definitions]
     currency_tool_names = [t["function"]["name"] for t in currency_tool_definitions]
+    equipment_tool_names = [t["function"]["name"] for t in equipment_tool_definitions]
 
     if normalized_tool_name in state_tool_names:
         return execute_state_tool(
@@ -188,6 +197,13 @@ def execute_normalized_tool(
 
     if normalized_tool_name in currency_tool_names:
         return execute_currency_tool(
+            character_id=character_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args
+        )
+
+    if normalized_tool_name in equipment_tool_names and execute_equipment_tool:
+        return execute_equipment_tool(
             character_id=character_id,
             tool_name=normalized_tool_name,
             arguments=normalized_tool_args
