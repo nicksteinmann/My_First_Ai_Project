@@ -1,3 +1,5 @@
+"""Status effect tool definitions and dispatcher."""
+
 from .service import apply_status_effect, get_status_effects, remove_status_effect
 
 

@@ -1,3 +1,10 @@
+"""Container-based inventory operations.
+
+Inventory data is stored as JSON on the character for the MVP. The service
+keeps item normalization, size checks, volume checks, stacking, and persistence
+deterministic so the LLM can only request inventory changes through tools.
+"""
+
 from copy import deepcopy
 from typing import Dict, Any, Optional
 from uuid import uuid4
@@ -14,13 +21,47 @@ from .repository import load_inventory_blob, save_inventory_blob
 from .schemas import InventoryOperationResult
 
 
+HAND_USAGE_ALIASES = {
+    "one-handed": "one_handed",
+    "one handed": "one_handed",
+    "onehanded": "one_handed",
+    "one-hand": "one_handed",
+    "one hand": "one_handed",
+    "one_hand": "one_handed",
+    "one": "one_handed",
+    "two-handed": "two_handed",
+    "two handed": "two_handed",
+    "twohanded": "two_handed",
+    "two-hands": "two_handed",
+    "two hands": "two_handed",
+    "two hand": "two_handed",
+    "two_hand": "two_handed",
+    "two_hands": "two_handed",
+    "two": "two_handed",
+    "none": "none",
+    "no": "none",
+    "no hands": "none",
+    "no hand": "none",
+    "free": "none",
+}
+
+
+# ---------------------------------------------------------------------------
+# Container helpers
+# ---------------------------------------------------------------------------
+
+
 def _get_containers(inventory_blob: Dict[str, Any]):
+    """Return inventory containers, creating the base container if missing."""
+
     inventory_blob.setdefault("inventory", {})
     inventory_blob["inventory"].setdefault("containers", [deepcopy(DEFAULT_BASE_CONTAINER)])
     return inventory_blob["inventory"]["containers"]
 
 
 def _find_container(containers, container_id: str):
+    """Find one container by id in a container list."""
+
     for container in containers:
         if container["container_id"] == container_id:
             return container
@@ -28,10 +69,14 @@ def _find_container(containers, container_id: str):
 
 
 def _size_fits(item_size: str, container_size: str) -> bool:
+    """Return whether an item size is allowed in a container size profile."""
+
     return SIZE_ORDER[item_size] <= SIZE_ORDER[container_size]
 
 
 def _used_volume(container: Dict[str, Any]) -> float:
+    """Calculate used volume based on item volume and quantity."""
+
     total = 0.0
     for item in container.get("items", []):
         total += float(item["volume"]) * int(item["quantity"])
@@ -39,10 +84,19 @@ def _used_volume(container: Dict[str, Any]) -> float:
 
 
 def _available_volume(container: Dict[str, Any]) -> float:
+    """Return remaining volume in a container."""
+
     return float(container["max_volume"]) - _used_volume(container)
 
 
+# ---------------------------------------------------------------------------
+# Item normalization and stacking
+# ---------------------------------------------------------------------------
+
+
 def _normalize_item_payload(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize and validate an item payload before inserting it."""
+
     if not item:
         raise ValueError("Item payload is required.")
 
@@ -65,36 +119,6 @@ def _normalize_item_payload(item: Dict[str, Any]) -> Dict[str, Any]:
     normalized["quantity"] = int(normalized.get("quantity", 1))
 
     raw_hand_usage = (normalized.get("hand_usage") or "none").strip().lower()
-
-    HAND_USAGE_ALIASES = {
-        # ONE HAND
-        "one-handed": "one_handed",
-        "one handed": "one_handed",
-        "onehanded": "one_handed",
-        "one-hand": "one_handed",
-        "one hand": "one_handed",
-        "one_hand": "one_handed",
-        "one": "one_handed",
-
-        # TWO HANDS
-        "two-handed": "two_handed",
-        "two handed": "two_handed",
-        "twohanded": "two_handed",
-        "two-hands": "two_handed",
-        "two hands": "two_handed",
-        "two hand": "two_handed",
-        "two_hand": "two_handed",
-        "two_hands": "two_handed",
-        "two": "two_handed",
-
-        # NONE
-        "none": "none",
-        "no": "none",
-        "no hands": "none",
-        "no hand": "none",
-        "free": "none"
-    }
-
     normalized["hand_usage"] = HAND_USAGE_ALIASES.get(raw_hand_usage, raw_hand_usage)
 
     if not normalized["name"]:
@@ -119,6 +143,8 @@ def _normalize_item_payload(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _find_stack(container: Dict[str, Any], item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a compatible existing stack for a stackable item."""
+
     if not item["stackable"]:
         return None
 
@@ -137,7 +163,14 @@ def _find_stack(container: Dict[str, Any], item: Dict[str, Any]) -> Optional[Dic
     return None
 
 
+# ---------------------------------------------------------------------------
+# Public inventory operations
+# ---------------------------------------------------------------------------
+
+
 def get_inventory(character_id: int) -> Dict[str, Any]:
+    """Return the raw inventory blob for a character."""
+
     inventory_blob = load_inventory_blob(character_id)
     return inventory_blob
 
@@ -148,6 +181,8 @@ def add_inventory_item(
     quantity: int = 1,
     container_id: Optional[str] = None
 ) -> InventoryOperationResult:
+    """Add an item to a specific inventory container after validation."""
+
     inventory_blob = load_inventory_blob(character_id)
     containers = _get_containers(inventory_blob)
 
@@ -206,12 +241,15 @@ def add_inventory_item(
         }
     )
 
+
 def remove_inventory_item(
-        character_id: int,
-        item_id: str,
-        quantity: int = 1,
-        container_id: Optional[str] = None
+    character_id: int,
+    item_id: str,
+    quantity: int = 1,
+    container_id: Optional[str] = None,
 ) -> InventoryOperationResult:
+    """Remove an item by id or fuzzy name from one or all containers."""
+
     inventory_blob = load_inventory_blob(character_id)
     containers = _get_containers(inventory_blob)
 

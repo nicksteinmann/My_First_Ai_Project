@@ -1,9 +1,13 @@
+"""Dataclass schemas for inventory JSON data."""
+
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any
 
 
 @dataclass
 class InventoryItem:
+    """Serializable item stored inside an inventory container."""
+
     item_id: str
     name: str
     description: str
@@ -20,6 +24,8 @@ class InventoryItem:
 
 @dataclass
 class InventoryContainer:
+    """Serializable inventory container with volume and item-size limits."""
+
     container_id: str
     name: str
     source: str
@@ -36,6 +42,8 @@ class InventoryContainer:
 
 @dataclass
 class InventoryState:
+    """Serializable top-level inventory state."""
+
     containers: List[InventoryContainer] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -48,6 +56,8 @@ class InventoryState:
 
 @dataclass
 class InventoryOperationResult:
+    """Result returned by inventory tool operations."""
+
     success: bool
     message: str
     inventory: Dict[str, Any]
@@ -63,6 +73,8 @@ class InventoryOperationResult:
 
 
 def container_from_dict(data: Dict[str, Any]) -> InventoryContainer:
+    """Build an InventoryContainer dataclass from a JSON dict."""
+
     items = [InventoryItem(**item) for item in data.get("items", [])]
     return InventoryContainer(
         container_id=data["container_id"],
@@ -76,6 +88,8 @@ def container_from_dict(data: Dict[str, Any]) -> InventoryContainer:
 
 
 def inventory_from_dict(data: Dict[str, Any]) -> InventoryState:
+    """Build an InventoryState dataclass from a JSON dict."""
+
     inventory_data = data.get("inventory", {})
     containers = [
         container_from_dict(container)

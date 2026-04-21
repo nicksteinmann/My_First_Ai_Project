@@ -1,4 +1,9 @@
+"""Game system prompt builder."""
+
+
 def build_game_system_prompt(active_character):
+    """Build the system prompt for one gameplay turn."""
+
     return f"""
 You are the Game Master of a fantasy text-based RPG.
 

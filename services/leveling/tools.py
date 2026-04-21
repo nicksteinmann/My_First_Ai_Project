@@ -1,3 +1,5 @@
+"""Character leveling tool definitions and dispatcher."""
+
 from .service import add_xp
 
 

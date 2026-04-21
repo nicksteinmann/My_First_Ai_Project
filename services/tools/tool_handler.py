@@ -1,8 +1,18 @@
+"""Tool parsing, normalization, and dispatch helpers.
+
+The LLM may return native tool calls, provider-specific pseudo tool syntax, or
+older tool names from previous prompt versions. This module keeps those details
+out of the game route and turns whatever the model produced into one normalized
+backend tool execution.
+"""
+
 import json
 import re
 
 
 def debug_tool_event(label, payload=None):
+    """Print structured tool debug output for live browser testing."""
+
     print(f"[TOOL DEBUG] {label}")
     if payload is not None:
         try:
@@ -12,6 +22,8 @@ def debug_tool_event(label, payload=None):
 
 
 def _normalize_dsml_text(text):
+    """Normalize DSML-like provider output before regex parsing."""
+
     if not text:
         return ""
 
@@ -30,6 +42,14 @@ def _normalize_dsml_text(text):
 
 
 def extract_fake_tool_calls(text):
+    """Extract DSML/fake tool calls from assistant text.
+
+    Some providers occasionally emit tool syntax as plain text instead of using
+    the native tool_calls field. Parsing those calls lets the backend still
+    enforce state changes through validated tools, while the debug log exposes
+    attempted and rejected calls during testing.
+    """
+
     if not text:
         return []
 
@@ -71,6 +91,8 @@ def extract_fake_tool_calls(text):
 
 
 def clean_tool_args(tool_args):
+    """Coerce simple string arguments produced by fake tools into Python values."""
+
     if not isinstance(tool_args, dict):
         return tool_args
 
@@ -93,6 +115,8 @@ def clean_tool_args(tool_args):
 
 
 def normalize_tool_call(tool_name, tool_args, active_character):
+    """Map legacy or model-invented tool names to canonical backend tools."""
+
     normalized_tool_name = tool_name
     normalized_tool_args = dict(tool_args)
 
@@ -188,6 +212,8 @@ def get_valid_tool_names(
     attribute_tool_definitions=None,
     skill_tool_definitions=None,
 ):
+    """Return all canonical and compatibility tool names accepted this turn."""
+
     equipment_tool_definitions = equipment_tool_definitions or []
     resource_tool_definitions = resource_tool_definitions or []
     status_effect_tool_definitions = status_effect_tool_definitions or []
@@ -235,6 +261,12 @@ def resolve_tool_calls(
     attribute_tool_definitions=None,
     skill_tool_definitions=None,
 ):
+    """Resolve native or fake tool calls from a model message.
+
+    Native calls are used as-is. Fake DSML calls are accepted only if their name
+    appears in the current tool registry or compatibility alias list.
+    """
+
     tool_calls = first_message.tool_calls or []
 
     debug_tool_event("raw model message", {
@@ -308,6 +340,8 @@ def execute_normalized_tool(
     execute_attribute_tool,
     execute_skill_tool,
 ):
+    """Dispatch one normalized tool call to the owning gameplay system."""
+
     state_tool_names = [t["function"]["name"] for t in state_tool_definitions]
     inventory_tool_names = [t["function"]["name"] for t in inventory_tool_definitions]
     currency_tool_names = [t["function"]["name"] for t in currency_tool_definitions]
@@ -393,6 +427,8 @@ def execute_normalized_tool(
 
 
 def parse_tool_call_payload(tool_call, index=0):
+    """Return name, parsed arguments, call id, and raw JSON for one tool call."""
+
     if hasattr(tool_call, "function"):
         tool_name = tool_call.function.name
         tool_call_id = tool_call.id

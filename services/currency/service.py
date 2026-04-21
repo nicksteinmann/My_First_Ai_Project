@@ -1,12 +1,14 @@
+"""Gold, silver, and copper currency operations."""
+
 from typing import Dict, Optional
 
 from services.currency.repository import load_currency, save_currency
 from services.currency.constants import VALID_CURRENCY_TYPES
 
 
-# ===== RESULT OBJECT =====
-
 class CurrencyOperationResult:
+    """Serializable result for currency tool operations."""
+
     def __init__(
         self,
         success: bool,
@@ -20,13 +22,11 @@ class CurrencyOperationResult:
         self.details = details or {}
 
 
-# ===== GET =====
-
 def get_currency(character_id: int) -> Dict[str, int]:
+    """Return the current currency pouch for a character."""
+
     return load_currency(character_id)
 
-
-# ===== ADD =====
 
 def add_currency(
     character_id: int,
@@ -34,6 +34,7 @@ def add_currency(
     silver: int = 0,
     copper: int = 0,
 ) -> CurrencyOperationResult:
+    """Add non-negative currency amounts."""
 
     currency = load_currency(character_id)
 
@@ -80,14 +81,13 @@ def add_currency(
     )
 
 
-# ===== REMOVE =====
-
 def remove_currency(
     character_id: int,
     gold: int = 0,
     silver: int = 0,
     copper: int = 0,
 ) -> CurrencyOperationResult:
+    """Remove currency if the character has enough of each denomination."""
 
     currency = load_currency(character_id)
 

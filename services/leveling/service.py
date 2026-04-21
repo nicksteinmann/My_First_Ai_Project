@@ -1,3 +1,10 @@
+"""Character level progression service.
+
+Character XP is permanent and additive. Level-ups can increase max resources
+and grant backend-controlled attribute XP without requiring extra LLM tool
+calls, keeping progression deterministic.
+"""
+
 from typing import Any, Dict, List, Optional
 
 from models import db, Character, CharacterResource
@@ -13,6 +20,8 @@ from .constants import (
 
 
 class XpOperationResult:
+    """Serializable result for character XP operations."""
+
     def __init__(
         self,
         success: bool,
@@ -26,6 +35,8 @@ class XpOperationResult:
         self.details = details or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a tool-response friendly representation."""
+
         return {
             "success": self.success,
             "message": self.message,
@@ -35,17 +46,23 @@ class XpOperationResult:
 
 
 def xp_required_for_level(level: int) -> int:
+    """Return XP needed to move from level N to N+1."""
+
     if level < 1 or level >= MAX_CHARACTER_LEVEL:
         return 0
     return int(round(XP_BASE_COST * (level ** XP_CURVE_EXPONENT)))
 
 
 def total_xp_required_for_level(level: int) -> int:
+    """Return total lifetime XP required to be at a level."""
+
     level = max(1, min(int(level), MAX_CHARACTER_LEVEL))
     return sum(xp_required_for_level(current_level) for current_level in range(1, level))
 
 
 def level_from_total_xp(total_xp: int) -> int:
+    """Derive character level from total lifetime XP."""
+
     total_xp = max(0, int(total_xp))
 
     level = 1
@@ -88,6 +105,8 @@ def _coerce_xp_amount(amount: Any) -> int:
 
 
 def _resource_gain_for_level(character: Character) -> Dict[str, int]:
+    """Return per-level resource gains after class multipliers."""
+
     multipliers = CLASS_RESOURCE_MULTIPLIERS.get(character.class_name, {})
     gains = {}
 
@@ -99,6 +118,8 @@ def _resource_gain_for_level(character: Character) -> Dict[str, int]:
 
 
 def _apply_level_up_resource_gains(character: Character, levels_gained: int) -> Dict[str, int]:
+    """Increase max resources and partially refill them on level-up."""
+
     resources = _get_or_create_resources(character)
     per_level_gains = _resource_gain_for_level(character)
     total_gains = {
@@ -120,6 +141,8 @@ def _apply_level_up_resource_gains(character: Character, levels_gained: int) -> 
 
 
 def serialize_level_progression(character: Character) -> Dict[str, Any]:
+    """Return level progress data for prompts, API responses, and UI bars."""
+
     level = max(1, min(int(character.level or 1), MAX_CHARACTER_LEVEL))
     total_xp = max(0, int(character.xp or 0))
     current_level_xp = total_xp_required_for_level(level)
@@ -148,6 +171,8 @@ def serialize_level_progression(character: Character) -> Dict[str, Any]:
 
 
 def add_xp(character_id: int, amount: int, reason: Optional[str] = None) -> XpOperationResult:
+    """Add character XP and apply any resulting level-up rewards."""
+
     character = _get_character(character_id)
     old_level = max(1, min(int(character.level or 1), MAX_CHARACTER_LEVEL))
     old_xp = max(0, int(character.xp or 0))

@@ -1,3 +1,5 @@
+"""Character creation, selection, and character overview routes."""
+
 from flask import render_template, redirect, url_for, session, request, flash
 
 from data.character_presets import RACES, CLASSES
@@ -30,6 +32,8 @@ def register_character_routes(
     get_active_campaign_quest,
     get_or_create_default_world_template,
 ):
+    """Register character management routes on the Flask app."""
+
     @app.route("/characters")
     def characters():
         if not is_logged_in():

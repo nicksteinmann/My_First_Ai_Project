@@ -1,3 +1,5 @@
+"""Inventory tool definitions and dispatcher."""
+
 from .service import get_inventory, add_inventory_item, remove_inventory_item
 
 

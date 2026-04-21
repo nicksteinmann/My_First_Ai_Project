@@ -1,3 +1,5 @@
+"""Skill tool definitions and dispatcher."""
+
 from .service import add_skill_xp, create_custom_skill, serialize_character_skills
 
 

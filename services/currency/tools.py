@@ -1,3 +1,5 @@
+"""Currency tool definitions and dispatcher."""
+
 from typing import Dict, Any
 
 from services.currency.service import (
