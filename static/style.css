@@ -482,6 +482,30 @@ textarea {
     font-size: 0.88rem;
 }
 
+.status-effect-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.status-effect-row.compact {
+    margin: 0.45rem 0 0.2rem;
+}
+
+.status-effect-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.14);
+    color: #fde68a;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
 /* CHARACTERS */
 .character-list {
     display: flex;

@@ -1,5 +1,24 @@
 import json
 
+from .tool_handler import debug_tool_event, extract_fake_tool_calls
+
+
+def _contains_fake_tool_syntax(text):
+    if not text:
+        return False
+
+    if extract_fake_tool_calls(text):
+        return True
+
+    lowered = text.lower()
+    return (
+        "dsml" in lowered
+        or "function_call" in lowered
+        or "function_calls" in lowered
+        or "invoke name=" in lowered
+        or "parameter name=" in lowered
+    )
+
 
 def run_game_turn(
     client,
@@ -12,11 +31,15 @@ def run_game_turn(
     inventory_tool_definitions,
     currency_tool_definitions,
     equipment_tool_definitions,
+    resource_tool_definitions,
+    status_effect_tool_definitions,
 
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
     execute_equipment_tool,
+    execute_resource_tool,
+    execute_status_effect_tool,
 
     resolve_tool_calls,
     parse_tool_call_payload,
@@ -24,6 +47,7 @@ def run_game_turn(
     execute_normalized_tool,
 
     max_tool_rounds=5,
+    turn_id=None,
 ):
     """
     Führt einen kompletten LLM-Turn inkl. Tool-Loop aus.
@@ -34,9 +58,22 @@ def run_game_turn(
         + inventory_tool_definitions
         + currency_tool_definitions
         + equipment_tool_definitions
+        + resource_tool_definitions
+        + status_effect_tool_definitions
     )
+    debug_tool_event("game turn started", {
+        "turn_id": turn_id,
+        "campaign_id": campaign_id,
+        "character_id": active_character["id"],
+        "tool_count": len(all_tool_definitions),
+        "max_tool_rounds": max_tool_rounds,
+    })
 
     for round_index in range(max_tool_rounds):
+        debug_tool_event("tool round started", {
+            "turn_id": turn_id,
+            "round_index": round_index + 1,
+        })
 
         response = client.chat.completions.create(
             model=model,
@@ -55,6 +92,8 @@ def run_game_turn(
             inventory_tool_definitions,
             currency_tool_definitions,
             equipment_tool_definitions,
+            resource_tool_definitions,
+            status_effect_tool_definitions,
         )
 
         # -------------------------
@@ -89,6 +128,13 @@ def run_game_turn(
                 active_character,
             )
 
+            debug_tool_event("executing tool", {
+                "turn_id": turn_id,
+                "round_index": round_index + 1,
+                "tool_name": normalized_tool_name,
+                "arguments": normalized_tool_args,
+            })
+
             tool_result = execute_normalized_tool(
                 normalized_tool_name=normalized_tool_name,
                 normalized_tool_args=normalized_tool_args,
@@ -98,11 +144,25 @@ def run_game_turn(
                 inventory_tool_definitions=inventory_tool_definitions,
                 currency_tool_definitions=currency_tool_definitions,
                 equipment_tool_definitions=equipment_tool_definitions,
+                resource_tool_definitions=resource_tool_definitions,
+                status_effect_tool_definitions=status_effect_tool_definitions,
                 execute_state_tool=execute_state_tool,
                 execute_inventory_tool=execute_inventory_tool,
                 execute_currency_tool=execute_currency_tool,
                 execute_equipment_tool=execute_equipment_tool,
+                execute_resource_tool=execute_resource_tool,
+                execute_status_effect_tool=execute_status_effect_tool,
             )
+
+            if isinstance(tool_result, dict) and turn_id:
+                tool_result.setdefault("turn_id", turn_id)
+
+            debug_tool_event("tool result", {
+                "turn_id": turn_id,
+                "round_index": round_index + 1,
+                "tool_name": normalized_tool_name,
+                "result": tool_result,
+            })
 
             tool_result_messages.append({
                 "role": "tool",
@@ -122,7 +182,9 @@ def run_game_turn(
         "role": "system",
         "content": (
             "Tool execution has ended for this turn. Do not call any more tools. "
-            "Summarize the completed actions and continue the scene in the user's language."
+            "Summarize only the actions that were already completed by tool results. "
+            "Continue the scene in the user's language using plain narrative text only. "
+            "Never output DSML, XML, JSON, tool syntax, function_calls, invoke tags, or parameter tags."
         )
     })
 
@@ -133,6 +195,13 @@ def run_game_turn(
 
     content = response.choices[0].message.content or ""
     if content.strip():
+        if _contains_fake_tool_syntax(content):
+            debug_tool_event("final narration contained fake tool syntax", {
+                "turn_id": turn_id,
+                "content": content,
+            })
+            return "Die ausgeführten Aktionen sind verarbeitet. Was tust du als Nächstes?"
+
         return content
 
     return "The actions are resolved, but the narration could not be generated."

@@ -45,7 +45,7 @@
                     <h2>{{ active_character.name }}</h2>
                     <p><strong>{{ active_character.race }}</strong> · {{ active_character.class_name }}</p>
                     <p><strong>Level:</strong> {{ active_character.level }}</p>
-                    <p><strong>Status:</strong> {{ active_character.status }}</p>
+                    <p id="character-status"><strong>Status:</strong> {{ active_character.status }}</p>
                     <p id="state-currency"><strong>💰 Currency:</strong>
                         {{ active_character.currency.gold }}g /
                         {{ active_character.currency.silver }}s /
@@ -58,31 +58,44 @@
                 <div class="stat-block">
                     <div class="stat-row">
                         <span>❤️ HP</span>
-                        <span>{{ active_character.stats.hp }} / {{ active_character.stats.hp_max }}</span>
+                        <span id="stat-hp-text">{{ active_character.stats.hp }} / {{ active_character.stats.hp_max }}</span>
                     </div>
                     <div class="bar">
-                        <div class="bar-fill hp-fill" style="width: {{ (active_character.stats.hp / active_character.stats.hp_max * 100) | int }}%"></div>
+                        <div id="stat-hp-fill" class="bar-fill hp-fill" style="width: {{ (active_character.stats.hp / active_character.stats.hp_max * 100) | int if active_character.stats.hp_max > 0 else 0 }}%"></div>
                     </div>
                 </div>
 
                 <div class="stat-block">
                     <div class="stat-row">
                         <span>🔮 Mana</span>
-                        <span>{{ active_character.stats.mana }} / {{ active_character.stats.mana_max }}</span>
+                        <span id="stat-mana-text">{{ active_character.stats.mana }} / {{ active_character.stats.mana_max }}</span>
                     </div>
                     <div class="bar">
-                        <div class="bar-fill mana-fill" style="width: {{ (active_character.stats.mana / active_character.stats.mana_max * 100) | int }}%"></div>
+                        <div id="stat-mana-fill" class="bar-fill mana-fill" style="width: {{ (active_character.stats.mana / active_character.stats.mana_max * 100) | int if active_character.stats.mana_max > 0 else 0 }}%"></div>
                     </div>
                 </div>
 
                 <div class="stat-block">
                     <div class="stat-row">
                         <span>⚡ Energy</span>
-                        <span>{{ active_character.stats.energy }} / {{ active_character.stats.energy_max }}</span>
+                        <span id="stat-energy-text">{{ active_character.stats.energy }} / {{ active_character.stats.energy_max }}</span>
                     </div>
                     <div class="bar">
-                        <div class="bar-fill energy-fill" style="width: {{ (active_character.stats.energy / active_character.stats.energy_max * 100) | int }}%"></div>
+                        <div id="stat-energy-fill" class="bar-fill energy-fill" style="width: {{ (active_character.stats.energy / active_character.stats.energy_max * 100) | int if active_character.stats.energy_max > 0 else 0 }}%"></div>
                     </div>
+                </div>
+            </div>
+
+            <div class="home-character-bottom">
+                <h3>Status Effects</h3>
+                <div id="status-effect-root" class="status-effect-row">
+                    {% if active_character.status_effects %}
+                        {% for effect in active_character.status_effects %}
+                            <span class="status-effect-chip">{{ effect.name }} ({{ effect.duration_remaining }})</span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="muted-text">None</span>
+                    {% endif %}
                 </div>
             </div>
 
@@ -246,6 +259,7 @@
         const timeEl = document.getElementById("state-time");
         const questEl = document.getElementById("state-quest");
         const currencyEl = document.getElementById("state-currency");
+        const statusEl = document.getElementById("character-status");
 
         if (locationEl) {
             locationEl.innerHTML = `<strong>📍 Location:</strong> ${character.current_state.location}`;
@@ -262,6 +276,15 @@
         if (currencyEl && character.currency) {
             currencyEl.innerHTML = `<strong>💰 Currency:</strong> ${character.currency.gold}g / ${character.currency.silver}s / ${character.currency.copper}c`;
         }
+
+        if (statusEl) {
+            statusEl.innerHTML = `<strong>Status:</strong> ${character.status}`;
+        }
+
+        updateResourceBar("hp", character.stats?.hp, character.stats?.hp_max);
+        updateResourceBar("mana", character.stats?.mana, character.stats?.mana_max);
+        updateResourceBar("energy", character.stats?.energy, character.stats?.energy_max);
+        updateStatusEffects(character.status_effects || []);
 
         const inventoryRoot = document.getElementById("inventory-container-root");
         const equipmentRoot = document.getElementById("equipment-slot-root");
@@ -325,6 +348,38 @@
 
             inventoryRoot.innerHTML = html;
         }
+    }
+
+    function updateResourceBar(resourceName, currentValue, maxValue) {
+        const textEl = document.getElementById(`stat-${resourceName}-text`);
+        const fillEl = document.getElementById(`stat-${resourceName}-fill`);
+
+        if (textEl && currentValue !== undefined && maxValue !== undefined) {
+            textEl.textContent = `${currentValue} / ${maxValue}`;
+        }
+
+        if (fillEl && currentValue !== undefined && maxValue !== undefined) {
+            const percent = maxValue > 0
+                ? Math.max(0, Math.min(100, Math.floor((currentValue / maxValue) * 100)))
+                : 0;
+            fillEl.style.width = `${percent}%`;
+        }
+    }
+
+    function updateStatusEffects(statusEffects) {
+        const root = document.getElementById("status-effect-root");
+        if (!root) return;
+
+        if (!statusEffects.length) {
+            root.innerHTML = `<span class="muted-text">None</span>`;
+            return;
+        }
+
+        let html = "";
+        statusEffects.forEach(effect => {
+            html += `<span class="status-effect-chip">${effect.name} (${effect.duration_remaining})</span>`;
+        });
+        root.innerHTML = html;
     }
 
     async function sendMessage() {

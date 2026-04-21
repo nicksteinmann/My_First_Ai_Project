@@ -205,6 +205,56 @@ Not yet implemented:
 - Stat modifiers from equipment
 - Starting gear auto-equipped on character creation
 
+### Resource System
+
+Backend-controlled character resources stored in `character_resources`.
+
+Resources:
+
+- hp
+- mana
+- energy
+
+Rules:
+
+- Resource values cannot drop below 0.
+- Resource restoration is capped at the resource maximum.
+- HP reaching 0 automatically sets the character status to `dead`.
+- HP returning above 0 sets the character status back to `alive`.
+- Resource maximum values can be updated for future equipment or level-scaling systems.
+
+Tools:
+
+- get_resources
+- add_resource
+- remove_resource
+- set_resource
+
+Note: level-based formulas and equipment stat modifiers are still future work.
+
+### Status Effects
+
+Character status effect tables already exist and are now serialized into the UI.
+
+Displayed fields:
+
+- name
+- effect type
+- remaining duration
+- source text
+
+Current scope:
+
+- Status effects are visible on Home, My Characters, and Community pages.
+
+Tools:
+
+- get_status_effects
+- apply_status_effect
+- remove_status_effect
+
+Note: automatic duration ticking and complex modifier application are future work.
+
 ### Currency System
 
 Currencies:
@@ -239,8 +289,11 @@ The game turn pipeline supports:
 - Multi-tool execution in one turn
 - A bounded tool loop
 - A final no-tool narration call if the model keeps requesting tools until the loop limit is reached
+- Story history is marked as already resolved before it is sent back to the LLM
+- Each game request gets a backend turn id that is included in tool results
 
 This prevents the technical fallback text from being shown to the player after successful tool execution.
+It also reduces accidental repeated state changes from old narration context.
 
 ---
 
@@ -281,13 +334,18 @@ Working:
 - Container inventory
 - Currency system
 - Equipment MVP
+- Resource tools for HP / Mana / Energy
+- Character status sync when HP reaches 0
+- Status effect display and tools
 - Multi-system tool pipeline
 - UI state refresh after game turns
 
 Known limitations:
 
-- No resource tools for HP / Mana / Energy yet
 - No stat modifiers from equipment yet
+- No level-based resource scaling formula yet
+- No automatic status-effect duration ticking yet
+- No status-effect stat/resource modifiers yet
 - No real skill check system yet
 - No leveling / XP flow yet
 - No combat system yet
@@ -302,8 +360,9 @@ Known limitations:
 
 High priority:
 
-- Resource tools for HP / Mana / Energy
 - Equipment stat modifiers
+- Level-based HP / Mana / Energy scaling
+- Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
 - Advanced belt and pouch attachment rules
 - Skill checks with real gameplay impact

@@ -38,7 +38,9 @@ from services.adventure_state import STATE_TOOL_DEFINITIONS, execute_state_tool
 from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
 from services.equipment import EQUIPMENT_TOOL_DEFINITIONS, execute_equipment_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
+from services.resources import RESOURCE_TOOL_DEFINITIONS, execute_resource_tool
 from services.serializers import serialize_character
+from services.status_effects import STATUS_EFFECT_TOOL_DEFINITIONS, execute_status_effect_tool
 from services.story import (
     get_recent_story_messages,
     serialize_story_messages_for_template,
@@ -259,10 +261,14 @@ def create_app() -> Flask:
         INVENTORY_TOOL_DEFINITIONS,
         CURRENCY_TOOL_DEFINITIONS,
         EQUIPMENT_TOOL_DEFINITIONS,
+        RESOURCE_TOOL_DEFINITIONS,
+        STATUS_EFFECT_TOOL_DEFINITIONS,
         execute_state_tool,
         execute_inventory_tool,
         execute_currency_tool,
         execute_equipment_tool,
+        execute_resource_tool,
+        execute_status_effect_tool,
         resolve_tool_calls,
         parse_tool_call_payload,
         normalize_tool_call,

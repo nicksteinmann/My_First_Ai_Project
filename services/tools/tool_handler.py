@@ -2,31 +2,59 @@ import json
 import re
 
 
+def debug_tool_event(label, payload=None):
+    print(f"[TOOL DEBUG] {label}")
+    if payload is not None:
+        try:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        except TypeError:
+            print(payload)
+
+
+def _normalize_dsml_text(text):
+    if not text:
+        return ""
+
+    normalized = text
+    normalized = normalized.replace("｜", "|")
+    normalized = normalized.replace("ï½œ", "|")
+    normalized = normalized.replace("<| DSML |", "<|DSML|")
+    normalized = normalized.replace("<|DSML |", "<|DSML|")
+    normalized = normalized.replace("<| DSML|", "<|DSML|")
+    normalized = normalized.replace("| invoke", "|invoke")
+    normalized = normalized.replace("| parameter", "|parameter")
+    normalized = normalized.replace("| /invoke", "|/invoke")
+    normalized = normalized.replace("| /parameter", "|/parameter")
+    normalized = normalized.replace("| /function_calls", "|/function_calls")
+    return normalized
+
+
 def extract_fake_tool_calls(text):
     if not text:
         return []
 
+    text = _normalize_dsml_text(text)
     parsed_tool_calls = []
 
-    invoke_pattern = r'<\｜DSML\｜invoke\s+name="([^"]+)"\s*>(.*?)(?=<\｜DSML\｜invoke|<\｜DSML\｜/invoke>|$)'
+    invoke_pattern = r'<\|DSML\|invoke\s+name="([^"]+)"\s*>(.*?)(?=<\|DSML\|invoke|<\|DSML\|/invoke>|$)'
     invoke_matches = re.findall(invoke_pattern, text, re.DOTALL)
 
     for name, inner in invoke_matches:
         params = {}
 
         param_pattern = (
-            r'<\｜DSML\｜parameter\s+name="([^"]+)"'
+            r'<\|DSML\|parameter\s+name="([^"]+)"'
             r'(?:\s+string="(?:true|false)")?\s*>'
-            r'(.*?)(?=<\｜DSML\｜parameter|<\｜DSML\｜/invoke>|$)'
+            r'(.*?)(?=<\|DSML\|parameter|<\|DSML\|/invoke>|$)'
         )
         param_matches = re.findall(param_pattern, inner, re.DOTALL)
 
         for key, value in param_matches:
             cleaned_value = value.strip()
 
-            cleaned_value = re.sub(r'<\｜DSML\｜/?parameter[^>]*>', '', cleaned_value).strip()
-            cleaned_value = re.sub(r'<\｜DSML\｜/?invoke[^>]*>', '', cleaned_value).strip()
-            cleaned_value = re.sub(r'<\｜DSML\｜/?function_calls[^>]*>', '', cleaned_value).strip()
+            cleaned_value = re.sub(r'<\|DSML\|/?parameter[^>]*>', '', cleaned_value).strip()
+            cleaned_value = re.sub(r'<\|DSML\|/?invoke[^>]*>', '', cleaned_value).strip()
+            cleaned_value = re.sub(r'<\|DSML\|/?function_calls[^>]*>', '', cleaned_value).strip()
 
             if cleaned_value:
                 params[key] = cleaned_value
@@ -35,6 +63,9 @@ def extract_fake_tool_calls(text):
             "name": name.strip(),
             "arguments": params
         })
+
+    if parsed_tool_calls:
+        debug_tool_event("fake/DSML tool calls parsed", parsed_tool_calls)
 
     return parsed_tool_calls
 
@@ -94,7 +125,19 @@ def normalize_tool_call(tool_name, tool_args, active_character):
                 "copper": abs(min(delta_copper, 0)),
             }
 
+    if normalized_tool_name == "update_resource":
+        normalized_tool_name = "set_resource"
+
+    if normalized_tool_name == "damage_resource":
+        normalized_tool_name = "remove_resource"
+
+    if normalized_tool_name == "heal_resource":
+        normalized_tool_name = "add_resource"
+
     if normalized_tool_name == "change_location":
+        normalized_tool_name = "update_location"
+
+    if normalized_tool_name == "set_location":
         normalized_tool_name = "update_location"
 
     if normalized_tool_name == "update_active_quest":
@@ -111,6 +154,14 @@ def normalize_tool_call(tool_name, tool_args, active_character):
         if "quest_description" in normalized_tool_args and "description" not in normalized_tool_args:
             normalized_tool_args["description"] = normalized_tool_args["quest_description"]
 
+    if normalized_tool_name != tool_name or normalized_tool_args != tool_args:
+        debug_tool_event("tool call normalized", {
+            "original_name": tool_name,
+            "original_args": tool_args,
+            "normalized_name": normalized_tool_name,
+            "normalized_args": normalized_tool_args,
+        })
+
     return normalized_tool_name, normalized_tool_args
 
 
@@ -119,17 +170,27 @@ def get_valid_tool_names(
     inventory_tool_definitions,
     currency_tool_definitions,
     equipment_tool_definitions=None,
+    resource_tool_definitions=None,
+    status_effect_tool_definitions=None,
 ):
     equipment_tool_definitions = equipment_tool_definitions or []
+    resource_tool_definitions = resource_tool_definitions or []
+    status_effect_tool_definitions = status_effect_tool_definitions or []
 
     return {
         *(t["function"]["name"] for t in state_tool_definitions),
         *(t["function"]["name"] for t in inventory_tool_definitions),
         *(t["function"]["name"] for t in currency_tool_definitions),
         *(t["function"]["name"] for t in equipment_tool_definitions),
+        *(t["function"]["name"] for t in resource_tool_definitions),
+        *(t["function"]["name"] for t in status_effect_tool_definitions),
         "change_location",
+        "set_location",
         "update_active_quest",
         "update_currency",
+        "update_resource",
+        "damage_resource",
+        "heal_resource",
     }
 
 
@@ -139,8 +200,16 @@ def resolve_tool_calls(
     inventory_tool_definitions,
     currency_tool_definitions,
     equipment_tool_definitions=None,
+    resource_tool_definitions=None,
+    status_effect_tool_definitions=None,
 ):
     tool_calls = first_message.tool_calls or []
+
+    debug_tool_event("raw model message", {
+        "content": first_message.content,
+        "native_tool_call_count": len(tool_calls),
+        "native_tool_calls": tool_calls,
+    })
 
     if not tool_calls and first_message.content:
         fake_calls = extract_fake_tool_calls(first_message.content)
@@ -150,6 +219,8 @@ def resolve_tool_calls(
                 inventory_tool_definitions,
                 currency_tool_definitions,
                 equipment_tool_definitions,
+                resource_tool_definitions,
+                status_effect_tool_definitions,
             )
 
             filtered_fake_calls = [
@@ -157,7 +228,23 @@ def resolve_tool_calls(
                 if call.get("name") in valid_tool_names
             ]
 
+            rejected_fake_calls = [
+                call for call in fake_calls
+                if call.get("name") not in valid_tool_names
+            ]
+
+            debug_tool_event("fake/DSML tool call filtering", {
+                "valid_tool_names": sorted(valid_tool_names),
+                "accepted": filtered_fake_calls,
+                "rejected": rejected_fake_calls,
+            })
+
             tool_calls = filtered_fake_calls
+
+    debug_tool_event("resolved tool calls", {
+        "count": len(tool_calls),
+        "tool_calls": tool_calls,
+    })
 
     return tool_calls
 
@@ -171,15 +258,21 @@ def execute_normalized_tool(
     inventory_tool_definitions,
     currency_tool_definitions,
     equipment_tool_definitions,
+    resource_tool_definitions,
+    status_effect_tool_definitions,
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
     execute_equipment_tool,
+    execute_resource_tool,
+    execute_status_effect_tool,
 ):
     state_tool_names = [t["function"]["name"] for t in state_tool_definitions]
     inventory_tool_names = [t["function"]["name"] for t in inventory_tool_definitions]
     currency_tool_names = [t["function"]["name"] for t in currency_tool_definitions]
     equipment_tool_names = [t["function"]["name"] for t in equipment_tool_definitions]
+    resource_tool_names = [t["function"]["name"] for t in resource_tool_definitions]
+    status_effect_tool_names = [t["function"]["name"] for t in status_effect_tool_definitions]
 
     if normalized_tool_name in state_tool_names:
         return execute_state_tool(
@@ -209,6 +302,25 @@ def execute_normalized_tool(
             arguments=normalized_tool_args
         )
 
+    if normalized_tool_name in resource_tool_names and execute_resource_tool:
+        return execute_resource_tool(
+            character_id=character_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args
+        )
+
+    if normalized_tool_name in status_effect_tool_names and execute_status_effect_tool:
+        return execute_status_effect_tool(
+            character_id=character_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args
+        )
+
+    debug_tool_event("unknown normalized tool", {
+        "tool_name": normalized_tool_name,
+        "arguments": normalized_tool_args,
+    })
+
     return {
         "success": False,
         "message": f"Unknown tool: {normalized_tool_name}"
@@ -233,5 +345,12 @@ def parse_tool_call_payload(tool_call, index=0):
         raw_arguments = json.dumps(tool_args, ensure_ascii=False)
 
     tool_args = clean_tool_args(tool_args)
+
+    debug_tool_event("tool call payload parsed", {
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+        "tool_call_id": tool_call_id,
+        "raw_arguments": raw_arguments,
+    })
 
     return tool_name, tool_args, tool_call_id, raw_arguments

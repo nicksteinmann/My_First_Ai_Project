@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from flask import request, jsonify
 
 from models import db, StoryMessage
@@ -16,11 +18,15 @@ def register_game_routes(
     inventory_tool_definitions,
     currency_tool_definitions,
     equipment_tool_definitions,
+    resource_tool_definitions,
+    status_effect_tool_definitions,
 
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
     execute_equipment_tool,
+    execute_resource_tool,
+    execute_status_effect_tool,
 
     resolve_tool_calls,
     parse_tool_call_payload,
@@ -60,16 +66,40 @@ def register_game_routes(
             }), 400
 
         recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
+        turn_id = uuid4().hex
 
         system_prompt = build_game_system_prompt(active_character)
 
-        messages = [{"role": "system", "content": system_prompt}]
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "system",
+                "content": (
+                    f"Current backend turn id: {turn_id}. "
+                    "Only call tools for state changes caused by the latest user message in this current turn."
+                )
+            }
+        ]
+
+        if recent_story_messages:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "The following story history is context only. "
+                    "Do not execute tools for events, rewards, payments, damage, healing, "
+                    "inventory changes, equipment changes, status effects, location changes or quest changes "
+                    "that already appear in this history. Only call tools for new changes caused by the latest user message."
+                )
+            })
 
         for msg in recent_story_messages:
             if msg.sender_type == "user":
                 messages.append({"role": "user", "content": msg.content})
             elif msg.sender_type in ("assistant", "ai", "gm"):
-                messages.append({"role": "assistant", "content": msg.content})
+                messages.append({
+                    "role": "assistant",
+                    "content": f"[PAST NARRATION - ALREADY RESOLVED]\n{msg.content}"
+                })
 
         messages.append({"role": "user", "content": user_input})
 
@@ -97,16 +127,21 @@ def register_game_routes(
                 inventory_tool_definitions=inventory_tool_definitions,
                 currency_tool_definitions=currency_tool_definitions,
                 equipment_tool_definitions=equipment_tool_definitions,
+                resource_tool_definitions=resource_tool_definitions,
+                status_effect_tool_definitions=status_effect_tool_definitions,
 
                 execute_state_tool=execute_state_tool,
                 execute_inventory_tool=execute_inventory_tool,
                 execute_currency_tool=execute_currency_tool,
                 execute_equipment_tool=execute_equipment_tool,
+                execute_resource_tool=execute_resource_tool,
+                execute_status_effect_tool=execute_status_effect_tool,
 
                 resolve_tool_calls=resolve_tool_calls,
                 parse_tool_call_payload=parse_tool_call_payload,
                 normalize_tool_call=normalize_tool_call,
                 execute_normalized_tool=execute_normalized_tool,
+                turn_id=turn_id,
             )
 
             assistant_message = StoryMessage(

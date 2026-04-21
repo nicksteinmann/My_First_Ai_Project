@@ -4,7 +4,7 @@ from models import User, Character, Campaign, CampaignQuest
 from data.character_presets import RACES, CLASSES
 
 from services.llm_service import check_provider_availability
-from services.serializers import get_character_inventory_data
+from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
 
 
 def register_page_routes(
@@ -89,6 +89,7 @@ def register_page_routes(
                 current_location = get_current_campaign_location(campaign)
                 active_quest = get_active_campaign_quest(campaign)
                 inventory_data = get_character_inventory_data(character.id)
+                status_effects = get_character_status_effects(character.id)
 
                 serialized_characters.append({
                     "id": character.id,
@@ -97,6 +98,7 @@ def register_page_routes(
                     "class_name": character.class_name,
                     "level": character.level,
                     "status": character.status,
+                    "status_effects": status_effects,
                     "currency": character.currency_json,
                     "hp": resources.hp_current if resources else 0,
                     "max_hp": resources.hp_max if resources else 0,
