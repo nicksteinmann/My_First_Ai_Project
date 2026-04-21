@@ -12,6 +12,7 @@ from uuid import uuid4
 from .constants import (
     DEFAULT_BASE_CONTAINER,
     DEFAULT_ITEM_PROFILE,
+    HAND_CONTAINERS,
     ITEM_TYPE_DEFAULTS,
     SIZE_ORDER,
     VALID_HAND_USAGE,
@@ -59,6 +60,12 @@ def _get_containers(inventory_blob: Dict[str, Any]):
     return inventory_blob["inventory"]["containers"]
 
 
+def _get_equipment_slots(inventory_blob: Dict[str, Any]) -> Dict[str, Any]:
+    """Return raw equipment slots from the inventory blob."""
+
+    return inventory_blob.get("equipment", {}).get("slots", {})
+
+
 def _find_container(containers, container_id: str):
     """Find one container by id in a container list."""
 
@@ -66,6 +73,34 @@ def _find_container(containers, container_id: str):
         if container["container_id"] == container_id:
             return container
     return None
+
+
+def _find_container_index(containers, container_id: str) -> Optional[int]:
+    """Find a container index by id in a container list."""
+
+    for index, container in enumerate(containers):
+        if container.get("container_id") == container_id:
+            return index
+    return None
+
+
+def _sync_hand_containers(inventory_blob: Dict[str, Any]) -> None:
+    """Create hand containers for free hands and remove empty blocked ones."""
+
+    containers = _get_containers(inventory_blob)
+    slots = _get_equipment_slots(inventory_blob)
+
+    for hand_slot, profile in HAND_CONTAINERS.items():
+        container_id = profile["container_id"]
+        container_index = _find_container_index(containers, container_id)
+
+        if not slots.get(hand_slot):
+            if container_index is None:
+                containers.append(deepcopy(profile))
+            continue
+
+        if container_index is not None and not containers[container_index].get("items"):
+            containers.pop(container_index)
 
 
 def _size_fits(item_size: str, container_size: str) -> bool:
@@ -87,6 +122,39 @@ def _available_volume(container: Dict[str, Any]) -> float:
     """Return remaining volume in a container."""
 
     return float(container["max_volume"]) - _used_volume(container)
+
+
+def _can_store_item(container: Dict[str, Any], item: Dict[str, Any]) -> bool:
+    """Return whether a container can hold the item by size and volume."""
+
+    if container.get("source") == "hands" and item.get("hand_usage") != "none":
+        return False
+
+    if not _size_fits(item["size"], container["max_item_size"]):
+        return False
+
+    required_volume = item["volume"] * item["quantity"]
+    return required_volume <= _available_volume(container)
+
+
+def _is_carried_container(container: Dict[str, Any]) -> bool:
+    """Return whether a container is physically carried by the character."""
+
+    return container.get("source") in ("equipment", "hands")
+
+
+def _find_first_carried_container_with_space(containers, item: Dict[str, Any]):
+    """Find the first carried container that can accept an item."""
+
+    for container in containers:
+        if container.get("source") == "equipment" and _can_store_item(container, item):
+            return container
+
+    for container in containers:
+        if _is_carried_container(container) and _can_store_item(container, item):
+            return container
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +240,8 @@ def get_inventory(character_id: int) -> Dict[str, Any]:
     """Return the raw inventory blob for a character."""
 
     inventory_blob = load_inventory_blob(character_id)
+    _sync_hand_containers(inventory_blob)
+    save_inventory_blob(character_id, inventory_blob)
     return inventory_blob
 
 
@@ -184,20 +254,30 @@ def add_inventory_item(
     """Add an item to a specific inventory container after validation."""
 
     inventory_blob = load_inventory_blob(character_id)
+    _sync_hand_containers(inventory_blob)
     containers = _get_containers(inventory_blob)
-
-    target_container_id = container_id or DEFAULT_BASE_CONTAINER["container_id"]
-    target_container = _find_container(containers, target_container_id)
-
-    if not target_container:
-        return InventoryOperationResult(
-            success=False,
-            message=f"Container '{target_container_id}' not found.",
-            inventory=inventory_blob,
-        )
 
     normalized_item = _normalize_item_payload(item)
     normalized_item["quantity"] = int(quantity)
+
+    if container_id:
+        target_container = _find_container(containers, container_id)
+        if not target_container:
+            return InventoryOperationResult(
+                success=False,
+                message=f"Container '{container_id}' not found.",
+                inventory=inventory_blob,
+            )
+    else:
+        target_container = _find_first_carried_container_with_space(containers, normalized_item)
+        if not target_container:
+            return InventoryOperationResult(
+                success=False,
+                message=(
+                    f"No carried container has enough space for '{normalized_item['name']}'."
+                ),
+                inventory=inventory_blob,
+            )
 
     if not _size_fits(normalized_item["size"], target_container["max_item_size"]):
         return InventoryOperationResult(
@@ -251,6 +331,7 @@ def remove_inventory_item(
     """Remove an item by id or fuzzy name from one or all containers."""
 
     inventory_blob = load_inventory_blob(character_id)
+    _sync_hand_containers(inventory_blob)
     containers = _get_containers(inventory_blob)
 
     if not item_id or not item_id.strip():

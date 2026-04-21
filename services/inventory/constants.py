@@ -11,15 +11,41 @@ VALID_HAND_USAGE = ("none", "one_handed", "two_handed")
 
 DEFAULT_BASE_CONTAINER = {
     "container_id": "base_inventory",
-    "name": "Base Inventory",
+    "name": "No Carried Container",
     "source": "base",
     "source_item_id": None,
-    "max_volume": 10.0,
-    "max_item_size": "medium",
+    "max_volume": 0.0,
+    "max_item_size": "tiny",
     "items": [],
 }
 
-# Fallback-Profil, wenn ein Item keine eigenen Werte bekommt
+HAND_CONTAINERS = {
+    "main_hand": {
+        "container_id": "hand_main",
+        "name": "Holding Items (Main Hand)",
+        "source": "hands",
+        "source_item_id": "main_hand",
+        "max_volume": 1.0,
+        "max_item_size": "small",
+        "items": [],
+    },
+    "off_hand": {
+        "container_id": "hand_off",
+        "name": "Holding Items (Off Hand)",
+        "source": "hands",
+        "source_item_id": "off_hand",
+        "max_volume": 1.0,
+        "max_item_size": "small",
+        "items": [],
+    },
+}
+
+HAND_CONTAINER_IDS = {
+    slot: profile["container_id"]
+    for slot, profile in HAND_CONTAINERS.items()
+}
+
+# Fallback item profile when generated items omit values.
 DEFAULT_ITEM_PROFILE = {
     "description": "",
     "size": "small",
@@ -30,7 +56,7 @@ DEFAULT_ITEM_PROFILE = {
     "hand_usage": "none",
 }
 
-# Heuristik für spätere Übergangsphase / Legacy-Daten
+# Heuristics for legacy/generated items that omit physical defaults.
 ITEM_TYPE_DEFAULTS = {
     "weapon": {
         "size": "medium",

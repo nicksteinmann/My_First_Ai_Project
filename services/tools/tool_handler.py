@@ -120,6 +120,18 @@ def normalize_tool_call(tool_name, tool_args, active_character):
     normalized_tool_name = tool_name
     normalized_tool_args = dict(tool_args)
 
+    if normalized_tool_name == "add_inventory_item":
+        item = normalized_tool_args.get("item") or {}
+        item_type = str(item.get("item_type", "")).strip().lower()
+        item_id = item.get("item_id") or item.get("name")
+
+        if item_type in ("backpack", "rucksack") and item_id and not normalized_tool_args.get("container_id"):
+            normalized_tool_name = "equip_item"
+            normalized_tool_args = {
+                "item_id": item_id,
+                "slot": "backpack",
+            }
+
     if normalized_tool_name == "update_currency":
         gold_value = int(normalized_tool_args.get("gold", 0))
         silver_value = int(normalized_tool_args.get("silver", 0))

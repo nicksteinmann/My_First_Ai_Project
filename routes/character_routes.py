@@ -1,5 +1,7 @@
 """Character creation, selection, and character overview routes."""
 
+import json
+
 from flask import render_template, redirect, url_for, session, request, flash
 
 from data.character_presets import RACES, CLASSES
@@ -17,7 +19,6 @@ from models import (
 from services.attributes import serialize_attributes
 from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
 from services.currency.service import add_currency
-from services.inventory.service import add_inventory_item
 from services.leveling import serialize_level_progression
 from services.skills import serialize_character_skills
 
@@ -221,7 +222,10 @@ def register_character_routes(
                 campaign_id=new_campaign.id,
                 name="The Screeching Rat - Rented Room",
                 location_type="inn_room",
-                description="A tiny, cheap rented room with a straw bed and a wooden chest.",
+                description=(
+                    "A tiny, cheap rented room with a straw bed, a chair, and your packed backpack "
+                    "waiting beside the bed."
+                ),
                 is_discovered=True,
                 is_custom=False
             )
@@ -234,7 +238,7 @@ def register_character_routes(
             start_quest = CampaignQuest(
                 campaign_id=new_campaign.id,
                 title="Get Ready for the Day",
-                description="Equip your gear and leave your room.",
+                description="Pick up your backpack and prepare to leave your rented room.",
                 status="active",
                 reward_gold=0,
                 reward_xp=0
@@ -246,7 +250,9 @@ def register_character_routes(
                 main_objective="Begin your journey in the capital.",
                 current_scene_summary=(
                     "You wake up in a cheap rented room at the tavern called "
-                    "'The Screeching Rat' after arriving late in the capital."
+                    "'The Screeching Rat' after arriving late in the capital. "
+                    "You are dressed in simple travel clothes with a belt pouch and a wooden club. "
+                    "Your backpack rests nearby with your few supplies packed inside."
                 ),
                 world_state_summary=(
                     "The capital is a magically protected neutral city where open violence is impossible."
@@ -259,41 +265,112 @@ def register_character_routes(
             db.session.add(start_state)
             db.session.commit()
 
-            starter_items = [
-                {
-                    "item": {
-                        "item_id": "starter_rusty_sword",
-                        "name": "Rusty Sword",
-                        "description": "A worn but usable sword.",
-                        "size": "medium",
-                        "volume": 2.0,
-                        "weight": 4.0,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "one_handed",
-                        "item_type": "weapon",
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
+            starter_shirt = {
+                "item_id": "starter_simple_shirt",
+                "name": "Simple Shirt",
+                "description": "A plain shirt without pockets.",
+                "size": "small",
+                "volume": 1.0,
+                "weight": 0.5,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "clothing",
+                "equipped_slots": ["torso_clothing"],
+            }
+            starter_trousers = {
+                "item_id": "starter_travel_trousers",
+                "name": "Travel Trousers",
+                "description": "Simple trousers with small pockets.",
+                "size": "small",
+                "volume": 1.0,
+                "weight": 0.8,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "pants",
+                "container_profile": {
+                    "name": "Trouser Pockets",
+                    "max_volume": 1.0,
+                    "max_item_size": "small",
                 },
-                {
-                    "item": {
-                        "item_id": "starter_cloth_armor",
-                        "name": "Cloth Armor",
-                        "description": "Simple travel clothing with minimal protection.",
-                        "size": "medium",
-                        "volume": 3.0,
-                        "weight": 3.0,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "none",
-                        "item_type": "armor",
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
+                "equipped_slots": ["legs_clothing"],
+            }
+            starter_shoes = {
+                "item_id": "starter_simple_shoes",
+                "name": "Simple Shoes",
+                "description": "Worn but serviceable shoes.",
+                "size": "small",
+                "volume": 1.0,
+                "weight": 1.0,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "shoes",
+                "equipped_slots": ["feet"],
+            }
+            starter_belt = {
+                "item_id": "starter_simple_belt",
+                "name": "Simple Belt",
+                "description": "A simple belt that can hold two attachments.",
+                "size": "small",
+                "volume": 0.5,
+                "weight": 0.4,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "belt",
+                "equipped_slots": ["belt"],
+            }
+            starter_belt_pouch = {
+                "item_id": "starter_belt_pouch",
+                "name": "Small Belt Pouch",
+                "description": "A small pouch tied to your belt.",
+                "size": "small",
+                "volume": 0.5,
+                "weight": 0.3,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "pouch",
+                "container_profile": {
+                    "name": "Small Belt Pouch",
+                    "max_volume": 5.0,
+                    "max_item_size": "small",
                 },
-                {
-                    "item": {
+                "equipped_slots": ["belt_slot_1"],
+            }
+            starter_club = {
+                "item_id": "starter_wooden_club",
+                "name": "Wooden Club",
+                "description": "A rough wooden club, simple but useful.",
+                "size": "medium",
+                "volume": 2.0,
+                "weight": 3.0,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "one_handed",
+                "item_type": "weapon",
+                "equipped_slots": ["belt_slot_2"],
+            }
+            starter_backpack = {
+                "item_id": "starter_travel_backpack",
+                "name": "Travel Backpack",
+                "description": "A worn backpack lying beside the bed with a few supplies packed inside.",
+                "size": "medium",
+                "volume": 3.0,
+                "weight": 1.5,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "backpack",
+                "container_profile": {
+                    "name": "Travel Backpack",
+                    "max_volume": 10.0,
+                    "max_item_size": "medium",
+                },
+                "stored_items": [
+                    {
                         "item_id": "starter_torch",
                         "name": "Torch",
                         "description": "A simple torch for dark places.",
@@ -305,32 +382,7 @@ def register_character_routes(
                         "hand_usage": "one_handed",
                         "item_type": "utility",
                     },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
-                        "item_id": "starter_xp_potion",
-                        "name": "Beginner's Insight Draught",
-                        "description": "A shimmering test draught that grants 500 character XP when consumed.",
-                        "size": "small",
-                        "volume": 0.5,
-                        "weight": 0.5,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "none",
-                        "item_type": "consumable",
-                        "special_effect": {
-                            "tool": "add_xp",
-                            "amount": 500,
-                            "reason": "Consumed Beginner's Insight Draught",
-                        },
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
+                    {
                         "item_id": "starter_bread",
                         "name": "Bread",
                         "description": "A stale but edible loaf of bread.",
@@ -342,120 +394,84 @@ def register_character_routes(
                         "hand_usage": "none",
                         "item_type": "consumable",
                     },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
-                        "item_id": "starter_body_attribute_draught",
-                        "name": "Draught of Body Training",
-                        "description": "A dense training draught that grants 10000 XP to Strength, Dexterity and Constitution when consumed.",
+                    {
+                        "item_id": "starter_full_waterskin",
+                        "name": "Full Waterskin",
+                        "description": "A simple waterskin filled with clean water.",
                         "size": "small",
-                        "volume": 0.5,
-                        "weight": 0.5,
+                        "volume": 1.0,
+                        "weight": 1.0,
                         "stackable": False,
                         "quantity": 1,
                         "hand_usage": "none",
                         "item_type": "consumable",
-                        "special_effect": {
-                            "tool": "add_attribute_xp",
-                            "grants": {
-                                "strength": 10000,
-                                "dexterity": 10000,
-                                "constitution": 10000,
-                            },
-                            "reason": "Consumed Draught of Body Training",
-                        },
                     },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
-                        "item_id": "starter_mind_attribute_draught",
-                        "name": "Draught of Mind Training",
-                        "description": "A sharp training draught that grants 10000 XP to Intelligence, Perception and Charisma when consumed.",
-                        "size": "small",
-                        "volume": 0.5,
-                        "weight": 0.5,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "none",
-                        "item_type": "consumable",
-                        "special_effect": {
-                            "tool": "add_attribute_xp",
-                            "grants": {
-                                "intelligence": 10000,
-                                "perception": 10000,
-                                "charisma": 10000,
-                            },
-                            "reason": "Consumed Draught of Mind Training",
-                        },
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
-                        "item_id": "starter_sword_training_manual",
-                        "name": "Sword Training Manual",
-                        "description": "A compact practice manual that grants 10000 XP to Swordsmanship when studied.",
-                        "size": "small",
-                        "volume": 0.5,
-                        "weight": 0.5,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "none",
-                        "item_type": "consumable",
-                        "special_effect": {
-                            "tool": "add_skill_xp",
-                            "skill_name": "Swordsmanship",
-                            "amount": 10000,
-                            "reason": "Studied Sword Training Manual",
-                        },
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-                {
-                    "item": {
-                        "item_id": "starter_cooking_notes",
-                        "name": "Beginner's Cooking Notes",
-                        "description": "Simple cooking notes that create or improve the custom skill Cooking by 10000 XP when studied.",
-                        "size": "small",
-                        "volume": 0.5,
-                        "weight": 0.5,
-                        "stackable": False,
-                        "quantity": 1,
-                        "hand_usage": "none",
-                        "item_type": "consumable",
-                        "special_effect": {
-                            "tool": "add_skill_xp",
-                            "skill_name": "Cooking",
-                            "amount": 10000,
-                            "allow_create": True,
-                            "linked_attribute": "intelligence",
-                            "category": "Custom",
-                            "icon": "🍳",
-                            "short_code": "CKG",
-                            "reason": "Studied Beginner's Cooking Notes",
-                        },
-                    },
-                    "quantity": 1,
-                    "container_id": "base_inventory",
-                },
-            ]
+                ],
+            }
 
-            for starter_item in starter_items:
-                result = add_inventory_item(
-                    character_id=new_character.id,
-                    item=starter_item["item"],
-                    quantity=starter_item["quantity"],
-                    container_id=starter_item["container_id"],
-                )
-
-                if not result.success:
-                    raise ValueError(result.message)
+            new_character.inventory_json = json.dumps({
+                "inventory": {
+                    "containers": [
+                        {
+                            "container_id": "base_inventory",
+                            "name": "No Carried Container",
+                            "source": "base",
+                            "source_item_id": None,
+                            "max_volume": 0.0,
+                            "max_item_size": "tiny",
+                            "items": [],
+                        },
+                        {
+                            "container_id": "equipment_starter_travel_trousers",
+                            "name": "Trouser Pockets",
+                            "source": "equipment",
+                            "source_item_id": "starter_travel_trousers",
+                            "max_volume": 1.0,
+                            "max_item_size": "small",
+                            "items": [],
+                        },
+                        {
+                            "container_id": "equipment_starter_belt_pouch",
+                            "name": "Small Belt Pouch",
+                            "source": "equipment",
+                            "source_item_id": "starter_belt_pouch",
+                            "max_volume": 5.0,
+                            "max_item_size": "small",
+                            "items": [],
+                        },
+                        {
+                            "container_id": "nearby_room_gear",
+                            "name": "Nearby Room Gear",
+                            "source": "nearby",
+                            "source_item_id": None,
+                            "max_volume": 20.0,
+                            "max_item_size": "large",
+                            "items": [starter_backpack],
+                        },
+                    ]
+                },
+                "equipment": {
+                    "slots": {
+                        "head": None,
+                        "torso_clothing": starter_shirt,
+                        "torso_armor": None,
+                        "legs_clothing": starter_trousers,
+                        "legs_armor": None,
+                        "feet": starter_shoes,
+                        "gloves": None,
+                        "belt": starter_belt,
+                        "belt_slot_1": starter_belt_pouch,
+                        "belt_slot_2": starter_club,
+                        "backpack": None,
+                        "cloak": None,
+                        "ring_left": None,
+                        "ring_right": None,
+                        "main_hand": None,
+                        "off_hand": None,
+                    }
+                },
+            }, ensure_ascii=False)
+            db.session.commit()
 
             session["active_character_id"] = new_character.id
             flash("Character created successfully.", "success")
