@@ -1,3 +1,5 @@
+"""Persistence helpers for JSON-backed character inventory."""
+
 import json
 from typing import Dict, Any
 
@@ -6,6 +8,8 @@ from .constants import DEFAULT_BASE_CONTAINER
 
 
 def _safe_load_json(raw_value: str) -> Dict[str, Any]:
+    """Return parsed JSON or an empty dict for invalid legacy data."""
+
     if not raw_value:
         return {}
 
@@ -16,10 +20,14 @@ def _safe_load_json(raw_value: str) -> Dict[str, Any]:
 
 
 def _safe_dump_json(value: Dict[str, Any]) -> str:
+    """Serialize inventory JSON while preserving non-ASCII item text."""
+
     return json.dumps(value, ensure_ascii=False)
 
 
 def load_inventory_blob(character_id: int) -> Dict[str, Any]:
+    """Load a character inventory blob, creating the base inventory if needed."""
+
     character = db.session.get(Character, character_id)
     if not character:
         raise ValueError("Character not found.")
@@ -40,6 +48,8 @@ def load_inventory_blob(character_id: int) -> Dict[str, Any]:
 
 
 def save_inventory_blob(character_id: int, inventory_blob: Dict[str, Any]) -> None:
+    """Persist a complete inventory blob for a character."""
+
     character = db.session.get(Character, character_id)
     if not character:
         raise ValueError("Character not found.")

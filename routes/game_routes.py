@@ -1,3 +1,10 @@
+"""Gameplay API routes.
+
+This module owns the /api/game request boundary: it validates the session,
+builds prompt context, persists story messages, runs the bounded tool loop, and
+returns the refreshed serialized character state to the browser.
+"""
+
 from uuid import uuid4
 
 from flask import request, jsonify
@@ -40,6 +47,8 @@ def register_game_routes(
     execute_normalized_tool,
     run_game_turn,
 ):
+    """Register gameplay JSON endpoints on the Flask app."""
+
     @app.route("/api/game", methods=["POST"])
     def game():
         if not is_logged_in():

@@ -1,9 +1,19 @@
+"""Character status effect service.
+
+Status effects are currently tracked as named conditions with duration and
+source text. Modifier math is intentionally not applied yet; future systems can
+read active effects and compute temporary buffs or debuffs separately from
+permanent XP/level progression.
+"""
+
 from typing import Any, Dict, Optional
 
 from models import db, Character, CharacterStatusEffect, StatusEffectDefinition
 
 
 class StatusEffectOperationResult:
+    """Serializable result for status-effect tool operations."""
+
     def __init__(
         self,
         success: bool,
@@ -17,6 +27,8 @@ class StatusEffectOperationResult:
         self.details = details or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a tool-response friendly representation."""
+
         return {
             "success": self.success,
             "message": self.message,
@@ -33,6 +45,8 @@ def _get_character(character_id: int) -> Character:
 
 
 def _normalize_effect_name(name: str) -> str:
+    """Validate and normalize a status effect name."""
+
     normalized = (name or "").strip()
     if not normalized:
         raise ValueError("Status effect name is required.")
@@ -40,6 +54,8 @@ def _normalize_effect_name(name: str) -> str:
 
 
 def _coerce_duration(duration_turns: Any) -> int:
+    """Validate a positive turn duration."""
+
     try:
         duration = int(duration_turns)
     except (TypeError, ValueError) as exc:
@@ -57,6 +73,8 @@ def _get_or_create_definition(
     description: Optional[str] = None,
     default_duration_turns: int = 1,
 ) -> StatusEffectDefinition:
+    """Find or create the reusable definition for a status effect."""
+
     definition = StatusEffectDefinition.query.filter_by(name=name).first()
     if definition:
         return definition
@@ -74,6 +92,8 @@ def _get_or_create_definition(
 
 
 def serialize_status_effects(character_id: int) -> list[Dict[str, Any]]:
+    """Return active character status effects for UI and prompt context."""
+
     rows = (
         CharacterStatusEffect.query
         .filter_by(character_id=character_id)
@@ -98,6 +118,8 @@ def serialize_status_effects(character_id: int) -> list[Dict[str, Any]]:
 
 
 def get_status_effects(character_id: int) -> list[Dict[str, Any]]:
+    """Validate the character exists and return active status effects."""
+
     _get_character(character_id)
     return serialize_status_effects(character_id)
 
@@ -110,6 +132,8 @@ def apply_status_effect(
     description: Optional[str] = None,
     source_text: Optional[str] = None,
 ) -> StatusEffectOperationResult:
+    """Apply or refresh a character status effect."""
+
     try:
         character = _get_character(character_id)
         normalized_name = _normalize_effect_name(name)
@@ -164,6 +188,8 @@ def remove_status_effect(
     name: Optional[str] = None,
     status_effect_id: Optional[int] = None,
 ) -> StatusEffectOperationResult:
+    """Remove a character status effect by id or name."""
+
     try:
         character = _get_character(character_id)
     except ValueError as exc:

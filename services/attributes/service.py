@@ -1,3 +1,10 @@
+"""Core attribute progression service.
+
+Attributes are broad character stats such as strength or intelligence. They are
+separate from skills: character level-ups can grant class-weighted attribute XP,
+while direct attribute training still goes through explicit backend tools.
+"""
+
 import json
 from typing import Any, Dict, List, Optional
 
@@ -15,17 +22,23 @@ from .constants import (
 
 
 def attribute_xp_required_for_level(level: int) -> int:
+    """Return XP needed to move an attribute from level N to N+1."""
+
     if level < 1 or level >= MAX_ATTRIBUTE_LEVEL:
         return 0
     return int(round(ATTRIBUTE_XP_BASE_COST * (level ** ATTRIBUTE_XP_CURVE_EXPONENT)))
 
 
 def total_attribute_xp_required_for_level(level: int) -> int:
+    """Return total lifetime XP required for an attribute level."""
+
     level = max(1, min(int(level), MAX_ATTRIBUTE_LEVEL))
     return sum(attribute_xp_required_for_level(current_level) for current_level in range(1, level))
 
 
 def attribute_level_from_total_xp(total_xp: int) -> int:
+    """Derive attribute level from total lifetime XP."""
+
     total_xp = max(0, int(total_xp))
 
     level = 1
@@ -49,6 +62,8 @@ def _get_or_create_attributes(character: Character) -> CharacterAttribute:
 
 
 def _load_attribute_xp(attributes: CharacterAttribute) -> Dict[str, int]:
+    """Load attribute XP JSON and backfill from existing levels if needed."""
+
     try:
         raw_data = json.loads(attributes.attribute_xp_json or "{}")
     except (TypeError, ValueError):
@@ -64,6 +79,8 @@ def _load_attribute_xp(attributes: CharacterAttribute) -> Dict[str, int]:
 
 
 def _save_attribute_xp(attributes: CharacterAttribute, xp_data: Dict[str, int]) -> None:
+    """Persist normalized attribute XP JSON."""
+
     normalized = {
         attribute_key: max(0, int(xp_data.get(attribute_key, 0)))
         for attribute_key in ATTRIBUTE_KEYS
@@ -72,6 +89,8 @@ def _save_attribute_xp(attributes: CharacterAttribute, xp_data: Dict[str, int]) 
 
 
 def serialize_attribute_progression(attributes: CharacterAttribute, attribute_key: str) -> Dict[str, Any]:
+    """Return progress data for one attribute."""
+
     xp_data = _load_attribute_xp(attributes)
     level = max(1, min(int(getattr(attributes, attribute_key, 1) or 1), MAX_ATTRIBUTE_LEVEL))
     total_xp = max(total_attribute_xp_required_for_level(level), int(xp_data.get(attribute_key, 0)))
@@ -105,6 +124,8 @@ def serialize_attribute_progression(attributes: CharacterAttribute, attribute_ke
 
 
 def serialize_attributes(character_or_attributes: Character | CharacterAttribute | None) -> List[Dict[str, Any]]:
+    """Return all six attributes with level and XP progress metadata."""
+
     if character_or_attributes is None:
         return []
 
@@ -134,12 +155,16 @@ def serialize_attributes(character_or_attributes: Character | CharacterAttribute
 
 
 def _class_attribute_weights(class_name: str) -> Dict[str, float]:
+    """Return class-specific attribute XP weights merged with defaults."""
+
     weights = dict(DEFAULT_ATTRIBUTE_XP_WEIGHTS)
     weights.update(CLASS_ATTRIBUTE_XP_WEIGHTS.get(class_name, {}))
     return weights
 
 
 def _attribute_xp_grants_for_character_levels(class_name: str, from_level: int, to_level: int) -> Dict[str, int]:
+    """Calculate attribute XP gained from character level intervals."""
+
     weights = _class_attribute_weights(class_name)
     grants = {attribute_key: 0 for attribute_key in ATTRIBUTE_KEYS}
 
@@ -153,6 +178,8 @@ def _attribute_xp_grants_for_character_levels(class_name: str, from_level: int, 
 
 
 def _normalize_attribute_key(attribute: str) -> str:
+    """Normalize English/German aliases to canonical attribute keys."""
+
     normalized = (attribute or "").strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
         "str": "strength",
@@ -198,6 +225,8 @@ def _apply_attribute_xp(
     attribute_key: str,
     amount: int,
 ) -> Optional[Dict[str, int]]:
+    """Apply XP to one attribute and return level-up details if it advanced."""
+
     old_level = int(getattr(attributes, attribute_key, 1) or 1)
     old_total_xp = max(total_attribute_xp_required_for_level(old_level), int(xp_data.get(attribute_key, 0)))
     new_total_xp = old_total_xp + amount
@@ -223,6 +252,8 @@ def add_attribute_xp(
     grants: Optional[Dict[str, Any]] = None,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Add direct attribute XP, either to one attribute or a batch of grants."""
+
     character = db.session.get(Character, character_id)
     if not character:
         return {
@@ -274,6 +305,8 @@ def add_attribute_xp(
 
 
 def grant_level_up_attribute_xp(character: Character, from_level: int, to_level: int) -> Dict[str, Any]:
+    """Grant automatic attribute XP after character level-ups."""
+
     if to_level <= from_level:
         return {
             "attribute_xp_grants": {},

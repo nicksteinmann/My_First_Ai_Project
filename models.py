@@ -1,3 +1,11 @@
+"""Database models for the AI Pen & Paper prototype.
+
+The schema is intentionally broad: some tables already support future systems
+such as merchants, enemies, skill checks, and world templates even when the
+current MVP mainly uses character state, inventory, equipment, resources,
+progression, story history, and campaign state.
+"""
+
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 
@@ -5,6 +13,8 @@ db = SQLAlchemy()
 
 
 class TimestampMixin:
+    """Shared created/updated timestamps for mutable persisted records."""
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -14,7 +24,14 @@ class TimestampMixin:
     )
 
 
+# ---------------------------------------------------------------------------
+# Account and character ownership
+# ---------------------------------------------------------------------------
+
+
 class User(db.Model, TimestampMixin):
+    """Login account that owns characters and profile data."""
+
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -29,6 +46,8 @@ class User(db.Model, TimestampMixin):
 
 
 class UserProfile(db.Model, TimestampMixin):
+    """Public profile metadata for a user."""
+
     __tablename__ = "user_profiles"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -43,6 +62,8 @@ class UserProfile(db.Model, TimestampMixin):
 
 
 class Character(db.Model, TimestampMixin):
+    """Player character and the root record for character-owned game state."""
+
     __tablename__ = "characters"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -66,7 +87,14 @@ class Character(db.Model, TimestampMixin):
     campaigns = db.relationship("Campaign", back_populates="character", cascade="all, delete-orphan")
 
 
+# ---------------------------------------------------------------------------
+# Character state and progression
+# ---------------------------------------------------------------------------
+
+
 class CharacterAttribute(db.Model):
+    """Core character attributes plus per-attribute lifetime XP."""
+
     __tablename__ = "character_attributes"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -83,6 +111,8 @@ class CharacterAttribute(db.Model):
 
 
 class CharacterResource(db.Model):
+    """Current and maximum HP, energy, mana, and legacy stamina values."""
+
     __tablename__ = "character_resources"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -100,6 +130,13 @@ class CharacterResource(db.Model):
 
 
 class SkillDefinition(db.Model):
+    """Global skill catalog entry.
+
+    Core skills are seeded and shared. Custom skills use the same table but are
+    marked with is_custom so they can be attached to characters without adding
+    new schema for every generated profession or activity.
+    """
+
     __tablename__ = "skill_definitions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -116,6 +153,8 @@ class SkillDefinition(db.Model):
 
 
 class CharacterSkill(db.Model, TimestampMixin):
+    """Per-character progress for a global or custom skill definition."""
+
     __tablename__ = "character_skills"
     __table_args__ = (
         db.UniqueConstraint("character_id", "skill_id", name="uq_character_skill"),
@@ -132,7 +171,14 @@ class CharacterSkill(db.Model, TimestampMixin):
     skill = db.relationship("SkillDefinition", back_populates="character_skills")
 
 
+# ---------------------------------------------------------------------------
+# World templates and active campaign state
+# ---------------------------------------------------------------------------
+
+
 class WorldTemplate(db.Model, TimestampMixin):
+    """Reusable world seed used when starting a campaign."""
+
     __tablename__ = "world_templates"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -149,6 +195,8 @@ class WorldTemplate(db.Model, TimestampMixin):
 
 
 class TemplateLocation(db.Model):
+    """Location blueprint that can be copied or referenced by campaigns."""
+
     __tablename__ = "template_locations"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -166,6 +214,8 @@ class TemplateLocation(db.Model):
 
 
 class TemplateNPC(db.Model):
+    """NPC blueprint belonging to a world template."""
+
     __tablename__ = "template_npcs"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -183,6 +233,8 @@ class TemplateNPC(db.Model):
 
 
 class Campaign(db.Model, TimestampMixin):
+    """Active adventure instance for one character in one world template."""
+
     __tablename__ = "campaigns"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -209,6 +261,8 @@ class Campaign(db.Model, TimestampMixin):
 
 
 class CampaignState(db.Model):
+    """Long-lived campaign summary state beyond the immediate location."""
+
     __tablename__ = "campaign_state"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -224,6 +278,8 @@ class CampaignState(db.Model):
 
 
 class CampaignLocation(db.Model, TimestampMixin):
+    """Discovered or generated location in a specific campaign."""
+
     __tablename__ = "campaign_locations"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -240,6 +296,8 @@ class CampaignLocation(db.Model, TimestampMixin):
 
 
 class CampaignNPC(db.Model, TimestampMixin):
+    """Campaign-specific NPC state, including generated NPCs."""
+
     __tablename__ = "campaign_npcs"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -260,6 +318,8 @@ class CampaignNPC(db.Model, TimestampMixin):
 
 
 class CampaignQuest(db.Model, TimestampMixin):
+    """Quest record tracked inside one campaign."""
+
     __tablename__ = "campaign_quests"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -277,7 +337,14 @@ class CampaignQuest(db.Model, TimestampMixin):
     campaign = db.relationship("Campaign", back_populates="quests")
 
 
+# ---------------------------------------------------------------------------
+# Items, merchants, and commerce
+# ---------------------------------------------------------------------------
+
+
 class ItemDefinition(db.Model, TimestampMixin):
+    """Template item definition for future reusable item generation."""
+
     __tablename__ = "item_definitions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -293,6 +360,8 @@ class ItemDefinition(db.Model, TimestampMixin):
 
 
 class CampaignItem(db.Model, TimestampMixin):
+    """Concrete item instance generated or discovered inside a campaign."""
+
     __tablename__ = "campaign_items"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -313,6 +382,8 @@ class CampaignItem(db.Model, TimestampMixin):
 
 
 class Merchant(db.Model):
+    """Merchant behavior and pricing profile attached to a campaign NPC."""
+
     __tablename__ = "merchants"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -328,6 +399,8 @@ class Merchant(db.Model):
 
 
 class MerchantInventory(db.Model):
+    """Stock entry linking a merchant to a campaign item."""
+
     __tablename__ = "merchant_inventory"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -341,7 +414,14 @@ class MerchantInventory(db.Model):
     merchant = db.relationship("Merchant", back_populates="inventory")
 
 
+# ---------------------------------------------------------------------------
+# Enemies, status effects, and checks
+# ---------------------------------------------------------------------------
+
+
 class EnemyDefinition(db.Model, TimestampMixin):
+    """Reusable enemy stat block for future combat generation."""
+
     __tablename__ = "enemy_definitions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -360,6 +440,8 @@ class EnemyDefinition(db.Model, TimestampMixin):
 
 
 class EnemyInstance(db.Model, TimestampMixin):
+    """Concrete enemy state inside a campaign."""
+
     __tablename__ = "enemy_instances"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -380,6 +462,8 @@ class EnemyInstance(db.Model, TimestampMixin):
 
 
 class StatusEffectDefinition(db.Model):
+    """Reusable status effect definition for buffs, debuffs, and conditions."""
+
     __tablename__ = "status_effect_definitions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -391,6 +475,8 @@ class StatusEffectDefinition(db.Model):
 
 
 class EnemyStatusEffect(db.Model):
+    """Active status effect applied to an enemy instance."""
+
     __tablename__ = "enemy_status_effects"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -404,6 +490,8 @@ class EnemyStatusEffect(db.Model):
 
 
 class CharacterStatusEffect(db.Model):
+    """Active status effect applied to a player character."""
+
     __tablename__ = "character_status_effects"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -415,6 +503,8 @@ class CharacterStatusEffect(db.Model):
 
 
 class SkillCheckLog(db.Model):
+    """Audit trail for future deterministic skill checks and combat rolls."""
+
     __tablename__ = "skill_check_log"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -434,7 +524,14 @@ class SkillCheckLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+# ---------------------------------------------------------------------------
+# Story, support, and campaign settings
+# ---------------------------------------------------------------------------
+
+
 class StoryMessage(db.Model):
+    """Persisted chat/story message for campaign history."""
+
     __tablename__ = "story_messages"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -448,6 +545,8 @@ class StoryMessage(db.Model):
 
 
 class SessionSummary(db.Model):
+    """Condensed campaign summary for future long-context management."""
+
     __tablename__ = "session_summaries"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -463,6 +562,8 @@ class SessionSummary(db.Model):
 
 
 class SupportChatSession(db.Model, TimestampMixin):
+    """Out-of-game support chat session."""
+
     __tablename__ = "support_chat_sessions"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -472,6 +573,8 @@ class SupportChatSession(db.Model, TimestampMixin):
 
 
 class SupportChatMessage(db.Model):
+    """Message belonging to a support chat session."""
+
     __tablename__ = "support_chat_messages"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -482,6 +585,8 @@ class SupportChatMessage(db.Model):
 
 
 class LLMModelConfig(db.Model):
+    """Selectable LLM provider/model configuration."""
+
     __tablename__ = "llm_model_configs"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -495,6 +600,8 @@ class LLMModelConfig(db.Model):
 
 
 class CampaignSetting(db.Model):
+    """Per-campaign gameplay and model settings."""
+
     __tablename__ = "campaign_settings"
 
     id = db.Column(db.Integer, primary_key=True)

@@ -1,9 +1,19 @@
+"""Bounded LLM turn loop for gameplay.
+
+Each user action can trigger a limited number of backend tool calls. Tool
+results are appended back into the message list so the model can continue
+planning within the same turn, and a final narration is requested when the
+tool budget is exhausted.
+"""
+
 import json
 
 from .tool_handler import debug_tool_event, extract_fake_tool_calls
 
 
 def _contains_fake_tool_syntax(text):
+    """Return whether final narration still appears to contain tool syntax."""
+
     if not text:
         return False
 
@@ -55,9 +65,7 @@ def run_game_turn(
     max_tool_rounds=5,
     turn_id=None,
 ):
-    """
-    Führt einen kompletten LLM-Turn inkl. Tool-Loop aus.
-    """
+    """Run one gameplay turn with a bounded tool-call loop."""
 
     all_tool_definitions = (
         state_tool_definitions
@@ -92,9 +100,7 @@ def run_game_turn(
 
         message = response.choices[0].message
 
-        # -------------------------
-        # 1. Tool Calls erkennen
-        # -------------------------
+        # 1. Resolve tool calls from the model message.
         tool_calls = resolve_tool_calls(
             message,
             state_tool_definitions,
@@ -108,21 +114,16 @@ def run_game_turn(
             skill_tool_definitions,
         )
 
-        # -------------------------
-        # 2. Kein Toolcall → fertig
-        # -------------------------
+        # 2. No tools means the message is already the final narration.
         if not tool_calls:
             content = message.content or ""
 
-            # 🔴 Fix für leere Antworten
             if not content.strip():
                 return "Something happens, but you can't quite make sense of it."
 
             return content
 
-        # -------------------------
-        # 3. Toolcalls verarbeiten
-        # -------------------------
+        # 3. Execute tools and feed results back into the conversation.
         messages.append(message)
 
         tool_result_messages = []
@@ -188,14 +189,9 @@ def run_game_turn(
                 "content": json.dumps(tool_result, ensure_ascii=False)
             })
 
-        # Tool Ergebnisse zurück ins Gespräch geben
         messages.extend(tool_result_messages)
 
-    # -------------------------
-    # 4. Falls max Runden erreicht:
-    #    Tool-Ausführung ist schon passiert, also erzwinge eine finale
-    #    Narrative ohne weitere Tools statt eines sichtbaren Technik-Fallbacks.
-    # -------------------------
+    # 4. The tool budget is exhausted; force a plain narrative summary.
     messages.append({
         "role": "system",
         "content": (

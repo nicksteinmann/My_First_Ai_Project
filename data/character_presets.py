@@ -1,3 +1,5 @@
+"""Static MVP race and class presets used during character creation."""
+
 RACES = {
     "Human": {
         "label": "Human",

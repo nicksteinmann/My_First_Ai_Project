@@ -1,3 +1,5 @@
+"""LLM provider configuration and lightweight client helpers."""
+
 import os
 from typing import Optional, Dict, Any
 
@@ -8,6 +10,8 @@ load_dotenv()
 
 
 def get_provider_config(provider: str) -> Dict[str, Any]:
+    """Return API key, base URL, and model name for a provider."""
+
     provider = provider.lower().strip()
 
     if provider == "openai":
@@ -30,6 +34,8 @@ def get_provider_config(provider: str) -> Dict[str, Any]:
 
 
 def build_client(provider: str) -> OpenAI:
+    """Build an OpenAI-compatible client for OpenAI or DeepSeek."""
+
     cfg = get_provider_config(provider)
 
     if not cfg["api_key"]:
@@ -42,11 +48,8 @@ def build_client(provider: str) -> OpenAI:
 
 
 def check_provider_availability(provider: str) -> Dict[str, Any]:
-    """
-    Prüft grob:
-    - Ist Key vorhanden?
-    - Kann ein Minimal-Request erfolgreich ausgeführt werden?
-    """
+    """Check whether a provider has a key and can answer a tiny request."""
+
     try:
         cfg = get_provider_config(provider)
 
@@ -59,7 +62,6 @@ def check_provider_availability(provider: str) -> Dict[str, Any]:
 
         client = build_client(provider)
 
-        # Kleiner Test-Call
         response = client.chat.completions.create(
             model=cfg["model"],
             messages=[
@@ -89,6 +91,8 @@ def check_provider_availability(provider: str) -> Dict[str, Any]:
 
 
 def ask_llm(prompt: str, provider: str = "deepseek", system_prompt: Optional[str] = None) -> str:
+    """Send a simple one-shot prompt without tool support."""
+
     cfg = get_provider_config(provider)
     client = build_client(provider)
 

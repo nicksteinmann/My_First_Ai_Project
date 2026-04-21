@@ -1,3 +1,5 @@
+"""Adventure state tools for location, time, and quest tracking."""
+
 import json
 
 from models import db, Campaign, CampaignLocation, CampaignQuest
@@ -7,6 +9,8 @@ TIME_ORDER = ["late night", "early morning", "morning", "noon", "afternoon", "ev
 
 
 def _normalize_time_label(value: str) -> str:
+    """Normalize time labels to the current coarse MVP time scale."""
+
     if not value:
         return "morning"
 
@@ -18,6 +22,8 @@ def _normalize_time_label(value: str) -> str:
 
 
 def _advance_time_label(current_label: str, minutes: int) -> str:
+    """Advance coarse time labels in rough three-hour chunks."""
+
     current_label = _normalize_time_label(current_label)
 
     if minutes <= 0:
@@ -25,9 +31,7 @@ def _advance_time_label(current_label: str, minutes: int) -> str:
 
     current_index = TIME_ORDER.index(current_label)
 
-    # Grobe MVP-Zeitlogik:
-    # < 180 Minuten = gleiche Tagesphase
-    # alle weiteren 180 Minuten = eine Phase weiter
+    # MVP time logic: every started 180-minute block advances one phase.
     steps = minutes // 180
     if minutes % 180 != 0:
         steps += 1
@@ -37,6 +41,8 @@ def _advance_time_label(current_label: str, minutes: int) -> str:
 
 
 def update_location(campaign_id: int, location_name: str, location_type: str = None, description: str = None):
+    """Create/find a campaign location and make it current."""
+
     campaign = db.session.get(Campaign, campaign_id)
     if not campaign:
         return {
@@ -92,6 +98,8 @@ def update_location(campaign_id: int, location_name: str, location_type: str = N
 
 
 def advance_time(campaign_id: int, minutes: int):
+    """Advance the active campaign's coarse time label."""
+
     campaign = db.session.get(Campaign, campaign_id)
     if not campaign:
         return {
@@ -123,6 +131,8 @@ def advance_time(campaign_id: int, minutes: int):
 
 
 def set_active_quest(campaign_id: int, title: str, description: str):
+    """Set one active quest and mark previous active quests inactive."""
+
     campaign = db.session.get(Campaign, campaign_id)
     if not campaign:
         return {
@@ -176,6 +186,8 @@ def set_active_quest(campaign_id: int, title: str, description: str):
 
 
 def complete_active_quest(campaign_id: int):
+    """Complete the oldest active quest in a campaign."""
+
     campaign = db.session.get(Campaign, campaign_id)
     if not campaign:
         return {
@@ -285,6 +297,8 @@ STATE_TOOL_DEFINITIONS = [
 
 
 def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
+    """Dispatch one adventure state tool call."""
+
     arguments = arguments or {}
 
     if tool_name == "update_location":

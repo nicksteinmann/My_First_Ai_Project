@@ -1,3 +1,5 @@
+"""Resource tool definitions and dispatcher."""
+
 from .service import add_resource, get_resources, remove_resource, set_resource
 
 

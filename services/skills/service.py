@@ -1,3 +1,11 @@
+"""Skill progression service for core and custom learned abilities.
+
+Core skills are seeded globally and displayed for every character at level 0.
+Custom skills are created only when gameplay needs a repeatable learned ability
+that does not fit a core skill. XP is additive; temporary penalties should be
+handled later through modifiers instead of reducing skill XP.
+"""
+
 import re
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +22,8 @@ from .constants import (
 
 
 def skill_xp_required_for_level(level: int) -> int:
+    """Return XP needed to advance from a skill level to the next level."""
+
     if level < 0 or level >= MAX_SKILL_LEVEL:
         return 0
     if level == 0:
@@ -22,11 +32,15 @@ def skill_xp_required_for_level(level: int) -> int:
 
 
 def total_skill_xp_required_for_level(level: int) -> int:
+    """Return total lifetime XP required for a skill level."""
+
     level = max(0, min(int(level), MAX_SKILL_LEVEL))
     return sum(skill_xp_required_for_level(current_level) for current_level in range(0, level))
 
 
 def skill_level_from_total_xp(total_xp: int) -> int:
+    """Derive skill level from total lifetime XP."""
+
     total_xp = max(0, int(total_xp))
 
     level = 0
@@ -44,6 +58,8 @@ def _normalize_skill_name(name: str) -> str:
 
 
 def _skill_name_key(name: str) -> str:
+    """Return a loose comparison key for skill names and legacy aliases."""
+
     normalized = _normalize_skill_name(name).lower()
     normalized = normalized.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
     return re.sub(r"[^a-z0-9]+", "", normalized)
@@ -62,6 +78,8 @@ def _coerce_xp_amount(amount: Any) -> int:
 
 
 def _coerce_short_code(value: Optional[str], fallback_name: str) -> str:
+    """Normalize custom skill short codes for compact UI chips."""
+
     raw_value = (value or "").strip().upper()
     raw_value = re.sub(r"[^A-Z0-9]", "", raw_value)
     if len(raw_value) >= 3:
@@ -79,6 +97,8 @@ def _get_character(character_id: int) -> Character:
 
 
 def _find_skill_definition(skill_name: str) -> Optional[SkillDefinition]:
+    """Find an active skill by fuzzy normalized name."""
+
     normalized_key = _skill_name_key(skill_name)
     for skill in SkillDefinition.query.filter_by(is_active=True).all():
         if _skill_name_key(skill.name) == normalized_key:
@@ -95,6 +115,8 @@ def _legacy_names_for_core_skill(core_name: str) -> List[str]:
 
 
 def _merge_legacy_skill_into_core(legacy_skill: SkillDefinition, core_skill: SkillDefinition) -> None:
+    """Move legacy per-character skill progress onto the canonical core skill."""
+
     if legacy_skill.id == core_skill.id:
         return
 
@@ -126,6 +148,8 @@ def _merge_legacy_skill_into_core(legacy_skill: SkillDefinition, core_skill: Ski
 
 
 def ensure_core_skill_definitions() -> None:
+    """Seed or update core skills and migrate legacy German skill names."""
+
     for skill_data in CORE_SKILLS:
         existing = _find_skill_definition(skill_data["name"])
         legacy_skills = [
@@ -165,6 +189,8 @@ def ensure_core_skill_definitions() -> None:
 
 
 def _get_or_create_character_skill(character: Character, skill: SkillDefinition) -> CharacterSkill:
+    """Return the character progress row for a skill, creating it if needed."""
+
     character_skill = CharacterSkill.query.filter_by(
         character_id=character.id,
         skill_id=skill.id,
@@ -186,6 +212,8 @@ def _get_or_create_character_skill(character: Character, skill: SkillDefinition)
 
 
 def _serialize_skill_progression_from_values(level_value: int, xp_value: int) -> Dict[str, Any]:
+    """Serialize skill progress from raw level and XP values."""
+
     level = max(0, min(int(level_value or 0), MAX_SKILL_LEVEL))
     total_xp = max(total_skill_xp_required_for_level(level), int(xp_value or 0))
     current_level_xp = total_skill_xp_required_for_level(level)
@@ -221,6 +249,8 @@ def _serialize_skill_progression(character_skill: CharacterSkill) -> Dict[str, A
 
 
 def _serialize_skill_definition(skill: SkillDefinition, character_skill: Optional[CharacterSkill] = None) -> Dict[str, Any]:
+    """Serialize a skill definition plus optional character progress."""
+
     if character_skill:
         level = int(character_skill.skill_level or 0)
         bonus_modifier = int(character_skill.bonus_modifier or 0)
@@ -247,6 +277,8 @@ def _serialize_skill_definition(skill: SkillDefinition, character_skill: Optiona
 
 
 def serialize_character_skills(character_or_id: Character | int) -> List[Dict[str, Any]]:
+    """Return all core skills and learned custom skills for a character."""
+
     character_id = character_or_id.id if isinstance(character_or_id, Character) else int(character_or_id)
     character_skills = (
         CharacterSkill.query
@@ -300,6 +332,8 @@ def create_custom_skill(
     icon: Optional[str] = None,
     short_code: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Create or attach a custom skill for a character."""
+
     try:
         character = _get_character(character_id)
     except ValueError as exc:
@@ -374,6 +408,8 @@ def add_skill_xp(
     icon: Optional[str] = None,
     short_code: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Add XP to a core or custom skill, optionally creating a custom skill."""
+
     try:
         character = _get_character(character_id)
         amount = _coerce_xp_amount(amount)

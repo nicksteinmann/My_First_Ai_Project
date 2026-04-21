@@ -1,7 +1,11 @@
+"""Story history helpers for prompt context and template rendering."""
+
 from models import StoryMessage
 
 
 def get_recent_story_messages(campaign_id, limit=12):
+    """Return the latest campaign story messages in chronological order."""
+
     messages = (
         StoryMessage.query
         .filter_by(campaign_id=campaign_id)
@@ -13,6 +17,8 @@ def get_recent_story_messages(campaign_id, limit=12):
 
 
 def serialize_story_messages_for_template(messages):
+    """Convert story messages into labels and CSS classes for templates."""
+
     serialized = []
 
     for msg in messages:
@@ -36,6 +42,8 @@ def serialize_story_messages_for_template(messages):
 
 
 def build_story_history_text(messages):
+    """Build plain text story history for prompt contexts that need it."""
+
     if not messages:
         return ""
 

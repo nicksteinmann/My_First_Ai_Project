@@ -1,3 +1,10 @@
+"""Character serializers for templates, prompts, and API responses.
+
+The serializer is the bridge between SQLAlchemy models, JSON-backed inventory
+state, and frontend-friendly dictionaries. It should collect existing backend
+state, not invent gameplay state.
+"""
+
 from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
@@ -7,16 +14,22 @@ from services.status_effects import serialize_status_effects
 
 
 def _round_inventory_value(value):
+    """Round inventory measurements for compact UI display."""
+
     return round(float(value), 2)
 
 
 def _build_item_label(item):
+    """Return a compact item name with quantity when needed."""
+
     quantity = int(item.get("quantity", 1))
     name = item.get("name", "Unknown Item")
     return f"{name} x{quantity}" if quantity > 1 else name
 
 
 def get_character_inventory_data(character_id):
+    """Serialize containers, equipment slots, and inventory summaries."""
+
     if not character_id:
         return {
             "containers": [],
@@ -98,6 +111,8 @@ def get_character_inventory_data(character_id):
 
 
 def get_character_status_effects(character_id):
+    """Return active status effects or an empty list for missing characters."""
+
     if not character_id:
         return []
     return serialize_status_effects(character_id)
@@ -109,6 +124,8 @@ def serialize_character(
     get_current_campaign_location,
     get_active_campaign_quest,
 ):
+    """Serialize the complete active character state used by the game UI."""
+
     attributes = character.attributes
     resources = character.resources
     campaign = get_active_campaign_for_character(character.id)

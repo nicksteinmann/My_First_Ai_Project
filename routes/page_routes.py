@@ -1,3 +1,5 @@
+"""HTML page routes and lightweight JSON availability endpoints."""
+
 from flask import render_template, redirect, url_for, session, flash, jsonify
 
 from models import User, Character, Campaign, CampaignQuest
@@ -21,6 +23,8 @@ def register_page_routes(
     get_recent_story_messages,
     serialize_story_messages_for_template,
 ):
+    """Register browser-facing page routes on the Flask app."""
+
     @app.route("/")
     def index():
         if not is_logged_in():

@@ -1,3 +1,5 @@
+"""Authentication routes for login, registration, and logout."""
+
 from flask import render_template, redirect, url_for, session, request, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -5,6 +7,8 @@ from models import db, User, UserProfile
 
 
 def register_auth_routes(app):
+    """Register authentication routes on the Flask app."""
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":

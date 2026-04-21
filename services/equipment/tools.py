@@ -1,3 +1,5 @@
+"""Equipment tool definitions and dispatcher."""
+
 from .service import equip_item, get_equipment, unequip_item
 
 

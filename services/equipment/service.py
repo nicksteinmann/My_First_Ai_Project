@@ -1,3 +1,11 @@
+"""Equipment slot logic built on top of the inventory blob.
+
+Equipped items are removed from normal containers and stored in equipment slots.
+Items with a container profile, such as backpacks or pouches, add a dedicated
+inventory container while equipped. Slot validation stays here so the LLM cannot
+equip items by directly mutating JSON state.
+"""
+
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -15,6 +23,8 @@ from .constants import (
 
 
 class EquipmentOperationResult:
+    """Result object shared by equip and unequip operations."""
+
     def __init__(
         self,
         success: bool,
@@ -30,6 +40,8 @@ class EquipmentOperationResult:
         self.details = details or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the operation result for tool responses."""
+
         return {
             "success": self.success,
             "message": self.message,
@@ -39,13 +51,22 @@ class EquipmentOperationResult:
         }
 
 
+# ---------------------------------------------------------------------------
+# Inventory/equipment state helpers
+# ---------------------------------------------------------------------------
+
+
 def _get_containers(inventory_blob: Dict[str, Any]):
+    """Return inventory containers, creating the base container if missing."""
+
     inventory_blob.setdefault("inventory", {})
     inventory_blob["inventory"].setdefault("containers", [deepcopy(DEFAULT_BASE_CONTAINER)])
     return inventory_blob["inventory"]["containers"]
 
 
 def _get_equipment_state(inventory_blob: Dict[str, Any]) -> Dict[str, Any]:
+    """Return equipment state and ensure every known slot exists."""
+
     equipment = inventory_blob.setdefault("equipment", {})
     slots = equipment.setdefault("slots", {})
 
@@ -56,6 +77,8 @@ def _get_equipment_state(inventory_blob: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _normalize_slot(slot: Optional[str]) -> Optional[str]:
+    """Normalize user/model slot names to canonical equipment slot ids."""
+
     if not slot:
         return None
 
@@ -63,7 +86,14 @@ def _normalize_slot(slot: Optional[str]) -> Optional[str]:
     return SLOT_ALIASES.get(normalized, normalized)
 
 
+# ---------------------------------------------------------------------------
+# Item classification helpers
+# ---------------------------------------------------------------------------
+
+
 def _is_placeholder(item: Optional[Dict[str, Any]]) -> bool:
+    """Return whether a slot item only marks a secondary occupied slot."""
+
     return bool(item and item.get("placeholder"))
 
 
@@ -88,6 +118,8 @@ def _is_backpack_item(item: Dict[str, Any]) -> bool:
 
 
 def _is_belt_pouch(item: Dict[str, Any]) -> bool:
+    """Return whether an item is small enough and container-like for belt slots."""
+
     if (
         _normalized_item_type(item) in ("pouch", "belt_pouch", "coin_pouch", "small_pouch")
         and _normalized_item_size(item) in BELT_POUCH_SIZES
@@ -104,7 +136,14 @@ def _is_belt_pouch(item: Dict[str, Any]) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Inventory movement helpers
+# ---------------------------------------------------------------------------
+
+
 def _find_inventory_item(inventory_blob: Dict[str, Any], item_id: str):
+    """Find an inventory item by id, exact name, or fuzzy name fragment."""
+
     normalized_item_id = (item_id or "").strip().lower()
     if not normalized_item_id:
         return None, None
@@ -125,6 +164,8 @@ def _find_inventory_item(inventory_blob: Dict[str, Any], item_id: str):
 
 
 def _remove_one_from_container(container: Dict[str, Any], item: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove one quantity from a container and return the equipped copy."""
+
     equipped_item = deepcopy(item)
     equipped_item["quantity"] = 1
 
@@ -156,6 +197,8 @@ def _find_container(inventory_blob: Dict[str, Any], container_id: str) -> Option
 
 
 def _can_add_item(container: Dict[str, Any], item: Dict[str, Any]) -> bool:
+    """Return whether a container can accept an item by size and volume."""
+
     if not _size_fits(item.get("size", "small"), container.get("max_item_size", "small")):
         return False
 
@@ -165,6 +208,8 @@ def _can_add_item(container: Dict[str, Any], item: Dict[str, Any]) -> bool:
 
 
 def _add_item_to_container(container: Dict[str, Any], item: Dict[str, Any]) -> None:
+    """Add an item to a container, merging compatible stacks."""
+
     if item.get("stackable"):
         for existing in container.get("items", []):
             if (
@@ -182,7 +227,14 @@ def _add_item_to_container(container: Dict[str, Any], item: Dict[str, Any]) -> N
     container.setdefault("items", []).append(item)
 
 
+# ---------------------------------------------------------------------------
+# Slot inference and validation
+# ---------------------------------------------------------------------------
+
+
 def _infer_slot(item: Dict[str, Any], requested_slot: Optional[str], slots: Dict[str, Any]) -> str:
+    """Infer the primary equipment slot for an item."""
+
     slot = _normalize_slot(requested_slot)
 
     if slot:
@@ -241,6 +293,8 @@ def _infer_slot(item: Dict[str, Any], requested_slot: Optional[str], slots: Dict
 
 
 def _target_slots_for_item(item: Dict[str, Any], primary_slot: str, slots: Dict[str, Any]):
+    """Return all slots occupied by an item, including two-handed placeholders."""
+
     hand_usage = (item.get("hand_usage") or "none").strip().lower()
 
     if primary_slot in BELT_ATTACHMENT_SLOTS:
@@ -264,6 +318,8 @@ def _target_slots_for_item(item: Dict[str, Any], primary_slot: str, slots: Dict[
 
 
 def _validate_belt_attachment(item: Dict[str, Any], primary_slot: str, slots: Dict[str, Any]) -> None:
+    """Validate weapons and small pouches attached to equipped belts."""
+
     if primary_slot not in BELT_ATTACHMENT_SLOTS:
         return
 
@@ -280,6 +336,8 @@ def _validate_belt_attachment(item: Dict[str, Any], primary_slot: str, slots: Di
 
 
 def _validate_backpack_slot(item: Dict[str, Any], primary_slot: str) -> None:
+    """Validate the backpack slot, including the shield-without-backpack rule."""
+
     if primary_slot != "backpack":
         return
 
@@ -291,6 +349,8 @@ def _validate_backpack_slot(item: Dict[str, Any], primary_slot: str) -> None:
 
 
 def _validate_target_slots(slots: Dict[str, Any], target_slots, item: Optional[Dict[str, Any]] = None):
+    """Ensure all target slots are empty and item-specific rules pass."""
+
     for slot in target_slots:
         if slots.get(slot):
             raise ValueError(f"Equipment slot '{slot}' is already occupied.")
@@ -301,7 +361,14 @@ def _validate_target_slots(slots: Dict[str, Any], target_slots, item: Optional[D
         _validate_backpack_slot(item, primary_slot)
 
 
+# ---------------------------------------------------------------------------
+# Equipment-provided containers
+# ---------------------------------------------------------------------------
+
+
 def _container_profile_from_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Read a container profile from an equipped item, if it provides storage."""
+
     profile = item.get("container_profile") or item.get("container")
     if not isinstance(profile, dict):
         return None
@@ -326,6 +393,8 @@ def _equipment_container_id(item: Dict[str, Any]) -> str:
 
 
 def _attach_equipment_container(inventory_blob: Dict[str, Any], item: Dict[str, Any]) -> Optional[str]:
+    """Attach an inventory container supplied by an equipped item."""
+
     profile = _container_profile_from_item(item)
     if not profile:
         return None
@@ -346,7 +415,14 @@ def _attach_equipment_container(inventory_blob: Dict[str, Any], item: Dict[str, 
     return container_id
 
 
+# ---------------------------------------------------------------------------
+# Equipped item lookup and serialization
+# ---------------------------------------------------------------------------
+
+
 def _find_equipped_item(slots: Dict[str, Any], slot: Optional[str], item_id: Optional[str]):
+    """Find an equipped item by slot or by id/name."""
+
     normalized_slot = _normalize_slot(slot)
     normalized_item_id = (item_id or "").strip().lower()
 
@@ -378,6 +454,8 @@ def _find_equipped_item(slots: Dict[str, Any], slot: Optional[str], item_id: Opt
 
 
 def _clean_equipment_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip slot-only metadata before returning an equipped item to inventory."""
+
     cleaned = deepcopy(item)
     cleaned.pop("equipped_slots", None)
     cleaned.pop("equipped_slot", None)
@@ -389,11 +467,15 @@ def _clean_equipment_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_equipment(character_id: int) -> Dict[str, Any]:
+    """Return raw equipment state for a character."""
+
     inventory_blob = load_inventory_blob(character_id)
     return _get_equipment_state(inventory_blob)
 
 
 def serialize_equipment(character_id: int):
+    """Return UI/prompt-friendly equipment slot data."""
+
     equipment = get_equipment(character_id)
     slots = equipment.get("slots", {})
     serialized_slots = []
@@ -439,7 +521,14 @@ def serialize_equipment(character_id: int):
     }
 
 
+# ---------------------------------------------------------------------------
+# Public equipment operations
+# ---------------------------------------------------------------------------
+
+
 def equip_item(character_id: int, item_id: str, slot: Optional[str] = None) -> EquipmentOperationResult:
+    """Equip one inventory item into a validated equipment slot."""
+
     inventory_blob = load_inventory_blob(character_id)
     equipment = _get_equipment_state(inventory_blob)
     slots = equipment["slots"]
@@ -492,6 +581,8 @@ def unequip_item(
     item_id: Optional[str] = None,
     target_container_id: Optional[str] = None,
 ) -> EquipmentOperationResult:
+    """Unequip one item and return it to an inventory container."""
+
     inventory_blob = load_inventory_blob(character_id)
     equipment = _get_equipment_state(inventory_blob)
     slots = equipment["slots"]

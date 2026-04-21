@@ -1,12 +1,14 @@
+"""Development seed script for baseline data."""
+
 from app import app
 from models import db, WorldTemplate, SkillDefinition, LLMModelConfig
 from services.skills.constants import CORE_SKILLS
 
 
 def seed():
-    with app.app_context():
+    """Insert baseline skills, world template, and model configs if missing."""
 
-        # === Skills (core defaults) ===
+    with app.app_context():
         skills = CORE_SKILLS
 
         for s in skills:
@@ -22,7 +24,6 @@ def seed():
                     is_active=True,
                 ))
 
-        # === Welt (Platzhalter) ===
         if not WorldTemplate.query.filter_by(slug="testwelt").first():
             world = WorldTemplate(
                 name="Testwelt",
@@ -34,7 +35,6 @@ def seed():
             )
             db.session.add(world)
 
-        # === Modelle (für Auswahl später) ===
         models = [
             {"provider_name": "openai", "model_name": "gpt-4.1-mini", "display_name": "GPT Mini"},
             {"provider_name": "deepseek", "model_name": "deepseek-chat", "display_name": "DeepSeek"}
@@ -45,7 +45,7 @@ def seed():
                 db.session.add(LLMModelConfig(**m))
 
         db.session.commit()
-        print("Seed Daten eingefügt.")
+        print("Seed data inserted.")
 
 
 if __name__ == "__main__":

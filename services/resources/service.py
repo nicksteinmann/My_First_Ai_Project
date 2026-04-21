@@ -1,3 +1,10 @@
+"""Character resource service for HP, mana, and energy.
+
+Resource changes are deterministic backend operations. HP also controls the
+character life status: dropping to 0 marks the character dead, and healing above
+0 restores the alive status.
+"""
+
 from typing import Any, Dict, Optional
 
 from models import db, Character, CharacterResource
@@ -6,6 +13,8 @@ from .constants import RESOURCE_ALIASES, RESOURCE_FIELDS
 
 
 class ResourceOperationResult:
+    """Serializable result for resource tool operations."""
+
     def __init__(
         self,
         success: bool,
@@ -19,6 +28,8 @@ class ResourceOperationResult:
         self.details = details or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a tool-response friendly representation."""
+
         return {
             "success": self.success,
             "message": self.message,
@@ -28,6 +39,8 @@ class ResourceOperationResult:
 
 
 def _normalize_resource_name(resource: str) -> str:
+    """Normalize aliases such as health/hp into canonical resource names."""
+
     normalized = (resource or "").strip().lower().replace("-", "_").replace(" ", "_")
     normalized = RESOURCE_ALIASES.get(normalized, normalized)
 
@@ -55,6 +68,8 @@ def _get_or_create_resources(character: Character) -> CharacterResource:
 
 
 def _serialize_resources(resources: CharacterResource, character: Optional[Character] = None) -> Dict[str, Any]:
+    """Return current/max/percent data for every tracked resource."""
+
     data = {}
 
     for resource_name, (current_field, max_field) in RESOURCE_FIELDS.items():
@@ -73,6 +88,8 @@ def _serialize_resources(resources: CharacterResource, character: Optional[Chara
 
 
 def _sync_character_life_status(character: Character, resources: CharacterResource) -> None:
+    """Keep character.status in sync with HP."""
+
     if int(resources.hp_current) <= 0:
         character.status = "dead"
     elif character.status == "dead" and int(resources.hp_current) > 0:
@@ -99,12 +116,16 @@ def _coerce_value(value: Any) -> int:
 
 
 def get_resources(character_id: int) -> Dict[str, Any]:
+    """Return serialized resources for a character."""
+
     character = _get_character(character_id)
     resources = _get_or_create_resources(character)
     return _serialize_resources(resources, character)
 
 
 def add_resource(character_id: int, resource: str, amount: int) -> ResourceOperationResult:
+    """Increase a current resource without exceeding its maximum."""
+
     character = _get_character(character_id)
     resources = _get_or_create_resources(character)
 
@@ -137,6 +158,8 @@ def add_resource(character_id: int, resource: str, amount: int) -> ResourceOpera
 
 
 def remove_resource(character_id: int, resource: str, amount: int) -> ResourceOperationResult:
+    """Decrease a current resource without going below zero."""
+
     character = _get_character(character_id)
     resources = _get_or_create_resources(character)
 
@@ -173,6 +196,8 @@ def set_resource(
     current: Optional[int] = None,
     maximum: Optional[int] = None,
 ) -> ResourceOperationResult:
+    """Set current and/or maximum value for one resource."""
+
     character = _get_character(character_id)
     resources = _get_or_create_resources(character)
 

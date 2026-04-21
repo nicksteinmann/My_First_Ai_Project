@@ -1,3 +1,5 @@
+"""Attribute tool definitions and dispatcher."""
+
 from .service import add_attribute_xp
 
 
