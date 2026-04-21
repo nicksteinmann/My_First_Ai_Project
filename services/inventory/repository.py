@@ -1,6 +1,7 @@
 """Persistence helpers for JSON-backed character inventory."""
 
 import json
+from copy import deepcopy
 from typing import Dict, Any
 
 from models import db, Character
@@ -26,7 +27,7 @@ def _safe_dump_json(value: Dict[str, Any]) -> str:
 
 
 def load_inventory_blob(character_id: int) -> Dict[str, Any]:
-    """Load a character inventory blob, creating the base inventory if needed."""
+    """Load inventory, creating the empty hands fallback if needed."""
 
     character = db.session.get(Character, character_id)
     if not character:
@@ -37,7 +38,7 @@ def load_inventory_blob(character_id: int) -> Dict[str, Any]:
     if not inventory_blob or "inventory" not in inventory_blob:
         inventory_blob = {
             "inventory": {
-                "containers": [DEFAULT_BASE_CONTAINER.copy()]
+                "containers": [deepcopy(DEFAULT_BASE_CONTAINER)]
             }
         }
         character.inventory_json = _safe_dump_json(inventory_blob)

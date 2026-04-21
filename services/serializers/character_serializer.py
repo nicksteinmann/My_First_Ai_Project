@@ -53,6 +53,11 @@ def get_character_inventory_data(character_id):
         serialized_items = []
         used_volume = 0.0
         container_weight = 0.0
+        container_source = container.get("source", "base")
+        is_carried_container = container_source in ("equipment", "hands")
+
+        if container_source in ("base", "hands") and not container.get("items"):
+            continue
 
         for item in container.get("items", []):
             quantity = int(item.get("quantity", 1))
@@ -64,7 +69,8 @@ def get_character_inventory_data(character_id):
 
             used_volume += total_item_volume
             container_weight += total_item_weight
-            total_weight += total_item_weight
+            if is_carried_container:
+                total_weight += total_item_weight
 
             serialized_item = {
                 "item_id": item.get("item_id"),
@@ -89,8 +95,9 @@ def get_character_inventory_data(character_id):
         serialized_containers.append({
             "container_id": container.get("container_id"),
             "name": container.get("name", "Unnamed Container"),
-            "source": container.get("source", "base"),
+            "source": container_source,
             "source_item_id": container.get("source_item_id"),
+            "is_carried": is_carried_container,
             "max_volume": _round_inventory_value(max_volume),
             "used_volume": _round_inventory_value(used_volume),
             "available_volume": _round_inventory_value(max_volume - used_volume),

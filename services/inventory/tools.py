@@ -19,7 +19,12 @@ INVENTORY_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "add_inventory_item",
-            "description": "Add an item into a specific inventory container. If no container_id is given, use the base inventory container.",
+            "description": (
+                "Create or add an item into an inventory container. Do not use this to wear or wield "
+                "an existing nearby item; use equip_item for that. If no container_id is given, the "
+                "backend uses carried equipment containers first, then free hand containers for "
+                "hand_usage none items."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -148,6 +148,12 @@ Character-based container inventory stored in `inventory_json`.
 Features:
 
 - Multiple containers per character
+- Inventory capacity comes from carried containers and equipped gear
+- The fallback `base_inventory` container has no real storage capacity
+- Free `main_hand` and `off_hand` slots create temporary hand containers with volume `1.0`
+- Hand containers can only store items with `hand_usage: none`
+- One-handed and two-handed items must use equipment hand slots instead of hand containers
+- Nearby scene containers can expose items that are in reach but not carried
 - Container volume limits
 - Max item size per container
 - Item volume and weight
@@ -193,6 +199,9 @@ Rules:
 - Belt attachment slots can hold pouch/container items only when their item size is `tiny` or `small`.
 - Shields can be equipped in the `backpack` slot when no backpack or container item is equipped there.
 - Equipped container items can add inventory containers when they define a container profile.
+- Torso and leg clothing can provide small pocket containers when their item data includes a container profile.
+- Starter characters begin with simple clothing, shoes, a belt, a small belt pouch, and a wooden club equipped.
+- The starter backpack begins nearby in the rented room and creates a backpack inventory container when equipped.
 - Items cannot be unequipped while their equipment-created container still contains items.
 
 Tools:
@@ -206,7 +215,7 @@ Not yet implemented:
 - Advanced belt attachment rules beyond the current two-slot MVP
 - More detailed belt pouch size classes
 - Stat modifiers from equipment
-- Starting gear auto-equipped on character creation
+- More detailed clothing types such as dresses occupying multiple clothing slots
 
 ### Resource System
 

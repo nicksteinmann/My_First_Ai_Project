@@ -9,7 +9,7 @@ equip items by directly mutating JSON state.
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
-from services.inventory.constants import DEFAULT_BASE_CONTAINER, SIZE_ORDER
+from services.inventory.constants import DEFAULT_BASE_CONTAINER, HAND_CONTAINER_IDS, SIZE_ORDER
 from services.inventory.repository import load_inventory_blob, save_inventory_blob
 
 from .constants import (
@@ -196,8 +196,22 @@ def _find_container(inventory_blob: Dict[str, Any], container_id: str) -> Option
     return None
 
 
+def _remove_empty_hand_container(inventory_blob: Dict[str, Any], hand_slot: str) -> None:
+    container = _find_container(inventory_blob, HAND_CONTAINER_IDS.get(hand_slot))
+    if container and not container.get("items"):
+        _get_containers(inventory_blob).remove(container)
+
+
+def _hand_container_has_items(inventory_blob: Dict[str, Any], hand_slot: str) -> bool:
+    container = _find_container(inventory_blob, HAND_CONTAINER_IDS.get(hand_slot))
+    return bool(container and container.get("items"))
+
+
 def _can_add_item(container: Dict[str, Any], item: Dict[str, Any]) -> bool:
     """Return whether a container can accept an item by size and volume."""
+
+    if container.get("source") == "hands" and item.get("hand_usage") != "none":
+        return False
 
     if not _size_fits(item.get("size", "small"), container.get("max_item_size", "small")):
         return False
@@ -225,6 +239,18 @@ def _add_item_to_container(container: Dict[str, Any], item: Dict[str, Any]) -> N
                 return
 
     container.setdefault("items", []).append(item)
+
+
+def _find_first_carried_container_with_space(inventory_blob: Dict[str, Any], item: Dict[str, Any]):
+    for container in _get_containers(inventory_blob):
+        if container.get("source") == "equipment" and _can_add_item(container, item):
+            return container
+
+    for container in _get_containers(inventory_blob):
+        if container.get("source") == "hands" and _can_add_item(container, item):
+            return container
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +387,12 @@ def _validate_target_slots(slots: Dict[str, Any], target_slots, item: Optional[D
         _validate_backpack_slot(item, primary_slot)
 
 
+def _validate_hand_containers_clear(inventory_blob: Dict[str, Any], target_slots) -> None:
+    for slot in target_slots:
+        if slot in HAND_CONTAINER_IDS and _hand_container_has_items(inventory_blob, slot):
+            raise ValueError(f"Cannot equip item in {slot} while that hand is holding items.")
+
+
 # ---------------------------------------------------------------------------
 # Equipment-provided containers
 # ---------------------------------------------------------------------------
@@ -403,6 +435,10 @@ def _attach_equipment_container(inventory_blob: Dict[str, Any], item: Dict[str, 
     if _find_container(inventory_blob, container_id):
         return container_id
 
+    stored_items = item.pop("stored_items", [])
+    if not isinstance(stored_items, list):
+        stored_items = []
+
     _get_containers(inventory_blob).append({
         "container_id": container_id,
         "name": profile["name"],
@@ -410,7 +446,7 @@ def _attach_equipment_container(inventory_blob: Dict[str, Any], item: Dict[str, 
         "source_item_id": item.get("item_id"),
         "max_volume": profile["max_volume"],
         "max_item_size": profile["max_item_size"],
-        "items": [],
+        "items": deepcopy(stored_items),
     })
     return container_id
 
@@ -462,6 +498,7 @@ def _clean_equipment_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
     cleaned.pop("placeholder", None)
     cleaned.pop("occupied_by", None)
     cleaned.pop("primary_slot", None)
+    cleaned.pop("stored_items", None)
     cleaned["quantity"] = 1
     return cleaned
 
@@ -541,6 +578,7 @@ def equip_item(character_id: int, item_id: str, slot: Optional[str] = None) -> E
         primary_slot = _infer_slot(source_item, slot, slots)
         target_slots = _target_slots_for_item(source_item, primary_slot, slots)
         _validate_target_slots(slots, target_slots, source_item)
+        _validate_hand_containers_clear(inventory_blob, target_slots)
     except ValueError as exc:
         return EquipmentOperationResult(False, str(exc), equipment, inventory_blob)
 
@@ -557,6 +595,10 @@ def equip_item(character_id: int, item_id: str, slot: Optional[str] = None) -> E
             "name": equipped_item.get("name"),
             "primary_slot": primary_slot,
         }
+
+    for target_slot in target_slots:
+        if target_slot in HAND_CONTAINER_IDS:
+            _remove_empty_hand_container(inventory_blob, target_slot)
 
     equipment_container_id = _attach_equipment_container(inventory_blob, equipped_item)
 
@@ -620,11 +662,15 @@ def unequip_item(
             {"equipment_container_id": container_id},
         )
 
-    target_container = _find_container(inventory_blob, target_container_id or DEFAULT_BASE_CONTAINER["container_id"])
-    if not target_container:
-        return EquipmentOperationResult(False, "Target inventory container not found.", equipment, inventory_blob)
-
     inventory_item = _clean_equipment_metadata(item)
+    target_container = (
+        _find_container(inventory_blob, target_container_id)
+        if target_container_id
+        else _find_first_carried_container_with_space(inventory_blob, inventory_item)
+    )
+    if not target_container:
+        return EquipmentOperationResult(False, "No carried container can hold the unequipped item.", equipment, inventory_blob)
+
     if not _can_add_item(target_container, inventory_item):
         return EquipmentOperationResult(
             False,

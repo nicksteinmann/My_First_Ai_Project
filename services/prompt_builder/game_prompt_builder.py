@@ -46,7 +46,14 @@ Tool Usage:
 State Changes:
 - Use state tools for location, time, or quest updates.
 - Use inventory tools for any item interaction (take, drop, use, consume).
+    - Inventory capacity comes from carried containers such as pockets, pouches, backpacks, and worn container gear.
+    - Free hands can temporarily hold small hand_usage none items as hand containers.
+    - Items with one_handed or two_handed hand_usage should be equipped in hand slots instead of stored in hand containers.
+    - Nearby scene containers can list reachable items, but they are not carried inventory.
+    - If no container_id is provided for add_inventory_item, the backend uses carried equipment containers first, then free hand containers.
 - Use equipment tools for equipping, unequipping, or checking equipped gear.
+    - equip_item can equip reachable items from carried inventory or nearby scene containers.
+    - When the player wears an existing nearby backpack, call equip_item with item_id and slot "backpack"; do not call add_inventory_item.
 - Use main_hand/off_hand for held items. two_handed items occupy both hands.
 - Use belt_slot_1/belt_slot_2 for weapons or tiny/small pouches attached to an equipped belt.
 - Shields may use the backpack slot when no backpack is equipped there.

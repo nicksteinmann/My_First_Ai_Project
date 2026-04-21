@@ -20,7 +20,12 @@ EQUIPMENT_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "equip_item",
-            "description": "Equip one inventory item into an equipment slot. Provide slot when the target slot is ambiguous.",
+            "description": (
+                "Equip one reachable item into an equipment slot. This can equip items from carried "
+                "inventory containers or nearby scene containers, for example a Travel Backpack in "
+                "nearby_room_gear. Use this instead of add_inventory_item when the player wears or "
+                "wields an existing item."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -30,7 +35,7 @@ EQUIPMENT_TOOL_DEFINITIONS = [
                     },
                     "slot": {
                         "type": "string",
-                        "description": "Optional equipment slot, for example head, torso_armor, gloves, belt, belt_slot_1, belt_slot_2, backpack, ring_left, main_hand or off_hand.",
+                        "description": "Optional equipment slot, for example head, torso_armor, gloves, belt, belt_slot_1, belt_slot_2, backpack, ring_left, main_hand or off_hand. Use backpack for backpacks worn on the back.",
                     },
                 },
                 "required": ["item_id"],
