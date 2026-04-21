@@ -44,7 +44,21 @@
                 <div class="home-character-middle">
                     <h2>{{ active_character.name }}</h2>
                     <p><strong>{{ active_character.race }}</strong> · {{ active_character.class_name }}</p>
-                    <p><strong>Level:</strong> {{ active_character.level }}</p>
+                    <div class="level-summary">
+                        <div class="stat-row">
+                            <span><strong>Level:</strong> <span id="character-level">{{ active_character.level }}</span></span>
+                            <span id="character-xp-text">
+                                {% if active_character.level_progression.is_max_level %}
+                                    {{ active_character.level_progression.total_xp }} XP
+                                {% else %}
+                                    {{ active_character.level_progression.xp_into_level }} / {{ active_character.level_progression.xp_needed_this_level }} XP
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="bar xp-bar">
+                            <div id="character-xp-fill" class="bar-fill xp-fill" style="width: {{ active_character.level_progression.progress_percent }}%"></div>
+                        </div>
+                    </div>
                     <p id="character-status"><strong>Status:</strong> {{ active_character.status }}</p>
                     <p id="state-currency"><strong>💰 Currency:</strong>
                         {{ active_character.currency.gold }}g /
@@ -260,6 +274,9 @@
         const questEl = document.getElementById("state-quest");
         const currencyEl = document.getElementById("state-currency");
         const statusEl = document.getElementById("character-status");
+        const levelEl = document.getElementById("character-level");
+        const xpTextEl = document.getElementById("character-xp-text");
+        const xpFillEl = document.getElementById("character-xp-fill");
 
         if (locationEl) {
             locationEl.innerHTML = `<strong>📍 Location:</strong> ${character.current_state.location}`;
@@ -279,6 +296,24 @@
 
         if (statusEl) {
             statusEl.innerHTML = `<strong>Status:</strong> ${character.status}`;
+        }
+
+        if (levelEl && character.level !== undefined) {
+            levelEl.textContent = character.level;
+        }
+
+        if (character.level_progression) {
+            const progression = character.level_progression;
+
+            if (xpTextEl) {
+                xpTextEl.textContent = progression.is_max_level
+                    ? `${progression.total_xp} XP`
+                    : `${progression.xp_into_level} / ${progression.xp_needed_this_level} XP`;
+            }
+
+            if (xpFillEl) {
+                xpFillEl.style.width = `${progression.progress_percent}%`;
+            }
         }
 
         updateResourceBar("hp", character.stats?.hp, character.stats?.hp_max);

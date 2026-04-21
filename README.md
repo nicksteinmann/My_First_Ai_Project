@@ -82,6 +82,7 @@ The AI must not directly modify game state. Every state change must go through v
 - services/currency/
 - services/equipment/
 - services/inventory/
+- services/leveling/
 - services/prompt_builder/
 - services/serializers/
 - services/story/
@@ -221,7 +222,7 @@ Rules:
 - Resource restoration is capped at the resource maximum.
 - HP reaching 0 automatically sets the character status to `dead`.
 - HP returning above 0 sets the character status back to `alive`.
-- Resource maximum values can be updated for future equipment or level-scaling systems.
+- Resource maximum values can be updated for equipment or level-scaling systems.
 
 Tools:
 
@@ -230,7 +231,38 @@ Tools:
 - remove_resource
 - set_resource
 
-Note: level-based formulas and equipment stat modifiers are still future work.
+Note: equipment stat modifiers are still future work.
+
+### Character Level Progression
+
+Backend-controlled character XP and level progression.
+
+Rules:
+
+- Characters start at level 1 with 0 XP.
+- Character level is capped at 100.
+- Character XP only increases.
+- Stored XP is total lifetime character XP, not only XP toward the current level.
+- The XP bar is calculated from total XP, current level threshold, and next level threshold.
+- XP needed per next level uses a progressive curve: `100 * level^1.55`.
+- Level-ups can happen multiple times from one XP grant.
+- Level-ups increase HP, Mana, and Energy maximum values.
+- Class multipliers control how much each resource grows per level.
+- Current HP, Mana, and Energy also increase by the gained maximum amount when the character is alive.
+
+Tool:
+
+- add_xp
+
+Current class scaling:
+
+- Knight: stronger HP growth, lower Mana growth
+- Mage: stronger Mana growth, lower HP growth
+- Rogue: stronger Energy growth
+- Priest: stronger Mana growth
+- Ranger: stronger Energy growth
+
+Note: skill XP, skill levels, skill points, and level-up choices are future work.
 
 ### Status Effects
 
@@ -316,6 +348,7 @@ Current displays:
 - Provider selection
 - Campaign state
 - Equipment slots
+- Character XP progress
 - Inventory containers
 - Currency
 - Story history
@@ -337,17 +370,18 @@ Working:
 - Resource tools for HP / Mana / Energy
 - Character status sync when HP reaches 0
 - Status effect display and tools
+- Character level progression and XP tool
 - Multi-system tool pipeline
 - UI state refresh after game turns
 
 Known limitations:
 
 - No stat modifiers from equipment yet
-- No level-based resource scaling formula yet
+- No skill XP / skill level progression yet
+- No level-up choice or skill point spending yet
 - No automatic status-effect duration ticking yet
 - No status-effect stat/resource modifiers yet
 - No real skill check system yet
-- No leveling / XP flow yet
 - No combat system yet
 - No NPC system yet
 - No merchant / trading system yet
@@ -361,12 +395,12 @@ Known limitations:
 High priority:
 
 - Equipment stat modifiers
-- Level-based HP / Mana / Energy scaling
+- Skill XP and skill level progression
 - Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
 - Advanced belt and pouch attachment rules
 - Skill checks with real gameplay impact
-- Level and XP progression
+- Level-up choices and skill point spending
 
 Mid-term:
 

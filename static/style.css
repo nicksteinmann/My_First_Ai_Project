@@ -328,6 +328,26 @@ textarea {
     background: linear-gradient(90deg, #f59e0b, #d97706);
 }
 
+.level-summary {
+    margin: 0.35rem 0 0.75rem;
+}
+
+.level-summary.compact {
+    max-width: 260px;
+}
+
+.level-summary .stat-row {
+    margin-bottom: 0.25rem;
+}
+
+.xp-bar {
+    height: 8px;
+}
+
+.xp-fill {
+    background: linear-gradient(90deg, #22c55e, #14b8a6);
+}
+
 .gold-display {
     margin-top: 1rem;
     font-weight: 700;

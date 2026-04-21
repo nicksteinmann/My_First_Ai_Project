@@ -7,6 +7,7 @@ Active Character:
 - Class: {active_character['class_name']}
 - Race: {active_character['race']}
 - Level: {active_character['level']}
+- XP: {active_character.get('level_progression', {}).get('xp_into_level', 0)} / {active_character.get('level_progression', {}).get('xp_needed_this_level', 0)} toward next level
 - Status: {active_character['status']}
 - Location: {active_character['current_state']['location']}
 - Time of Day: {active_character['current_state']['time_of_day']}
@@ -49,6 +50,10 @@ State Changes:
 - Use status effect tools for conditions like poisoned, bleeding, stunned, blessed or similar temporary effects.
     - Use apply_status_effect when a new effect starts or an existing effect is refreshed.
     - Use remove_status_effect when an effect clearly ends.
+- Use add_xp when the character gains experience from quests, discoveries, training, combat rewards or XP-granting consumables.
+    - Character XP only goes up.
+    - The backend handles level-ups, max level and HP/Mana/Energy bonuses.
+    - When an XP consumable is used, remove the consumed item from inventory and call add_xp.
 - Use currency tools when money is gained, spent, lost, or received.
     - Use add_currency for gains
     - Use remove_currency for spending or loss
