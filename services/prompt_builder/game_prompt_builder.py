@@ -19,6 +19,7 @@ Active Character:
 - HP: {active_character['stats']['hp']} / {active_character['stats']['hp_max']}
 - Mana: {active_character['stats']['mana']} / {active_character['stats']['mana_max']}
 - Energy: {active_character['stats']['energy']} / {active_character['stats']['energy_max']}
+- Attributes: {active_character.get('attribute_summary', 'None')}
 - Status Effects: {active_character.get('status_effect_summary', 'None')}
 
 Rules:
@@ -54,6 +55,10 @@ State Changes:
     - Character XP only goes up.
     - The backend handles level-ups, max level and HP/Mana/Energy bonuses.
     - When an XP consumable is used, remove the consumed item from inventory and call add_xp.
+- Use add_attribute_xp when the character gains XP for attributes through training, learning or attribute XP consumables.
+    - Valid attributes: strength, dexterity, constitution, intelligence, perception, charisma.
+    - Use the grants object when several attributes gain XP from the same action.
+    - When an attribute consumable is used, remove the consumed item from inventory and call add_attribute_xp.
 - Use currency tools when money is gained, spent, lost, or received.
     - Use add_currency for gains
     - Use remove_currency for spending or loss

@@ -260,6 +260,40 @@ textarea {
     line-height: 1;
 }
 
+.attribute-chip {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0.28rem;
+    min-width: 3.7rem;
+    padding: 0.38rem 0.55rem;
+}
+
+.attribute-chip-main {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+
+.attribute-mini-bar {
+    display: block;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: #0b1220;
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.attribute-mini-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #22c55e, #14b8a6);
+}
+
 .character-portrait {
     width: 110px;
     height: 110px;

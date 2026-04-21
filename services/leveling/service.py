@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from models import db, Character, CharacterResource
+from services.attributes import grant_level_up_attribute_xp
 
 from .constants import (
     BASE_RESOURCE_GAIN_PER_LEVEL,
@@ -181,11 +182,13 @@ def add_xp(character_id: int, amount: int, reason: Optional[str] = None) -> XpOp
     levels_gained = max(0, new_level - old_level)
     level_ups: List[int] = []
     resource_gains = {}
+    attribute_gains = {}
 
     if levels_gained:
         character.level = new_level
         level_ups = list(range(old_level + 1, new_level + 1))
         resource_gains = _apply_level_up_resource_gains(character, levels_gained)
+        attribute_gains = grant_level_up_attribute_xp(character, old_level, new_level)
     else:
         character.level = old_level
 
@@ -205,5 +208,6 @@ def add_xp(character_id: int, amount: int, reason: Optional[str] = None) -> XpOp
             "levels_gained": levels_gained,
             "level_ups": level_ups,
             "resource_gains": resource_gains,
+            "attribute_gains": attribute_gains,
         },
     )

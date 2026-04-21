@@ -1,3 +1,4 @@
+from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression
@@ -123,10 +124,11 @@ def serialize_character(
     energy_current = resources.energy_current if resources else 0
     energy_max = resources.energy_max if resources else 0
 
-    strength = attributes.strength if attributes else 0
-    dexterity = attributes.dexterity if attributes else 0
-    intelligence = attributes.intelligence if attributes else 0
-    perception = attributes.perception if attributes else 0
+    serialized_attributes = serialize_attributes(attributes)
+    attribute_summary = ", ".join(
+        f"{attribute['label']} {attribute['level']}"
+        for attribute in serialized_attributes
+    ) if serialized_attributes else "None"
 
     return {
         "id": character.id,
@@ -150,12 +152,9 @@ def serialize_character(
             "energy_max": energy_max,
             "currency": character.currency_json,
         },
-        "skills": [
-            {"icon": "⚔️", "name": "Strength", "level": strength},
-            {"icon": "🎯", "name": "Dexterity", "level": dexterity},
-            {"icon": "🧠", "name": "Intelligence", "level": intelligence},
-            {"icon": "👁️", "name": "Perception", "level": perception},
-        ],
+        "attributes": serialized_attributes,
+        "attribute_summary": attribute_summary,
+        "skills": [],
         "current_state": {
             "location": current_location.name if current_location else "Unknown",
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",

@@ -137,6 +137,9 @@ def normalize_tool_call(tool_name, tool_args, active_character):
     if normalized_tool_name in ("grant_xp", "add_experience", "gain_xp", "gain_experience"):
         normalized_tool_name = "add_xp"
 
+    if normalized_tool_name in ("grant_attribute_xp", "add_stat_xp"):
+        normalized_tool_name = "add_attribute_xp"
+
     if normalized_tool_name == "change_location":
         normalized_tool_name = "update_location"
 
@@ -176,11 +179,13 @@ def get_valid_tool_names(
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
     leveling_tool_definitions=None,
+    attribute_tool_definitions=None,
 ):
     equipment_tool_definitions = equipment_tool_definitions or []
     resource_tool_definitions = resource_tool_definitions or []
     status_effect_tool_definitions = status_effect_tool_definitions or []
     leveling_tool_definitions = leveling_tool_definitions or []
+    attribute_tool_definitions = attribute_tool_definitions or []
 
     return {
         *(t["function"]["name"] for t in state_tool_definitions),
@@ -190,6 +195,7 @@ def get_valid_tool_names(
         *(t["function"]["name"] for t in resource_tool_definitions),
         *(t["function"]["name"] for t in status_effect_tool_definitions),
         *(t["function"]["name"] for t in leveling_tool_definitions),
+        *(t["function"]["name"] for t in attribute_tool_definitions),
         "change_location",
         "set_location",
         "update_active_quest",
@@ -201,6 +207,8 @@ def get_valid_tool_names(
         "add_experience",
         "gain_xp",
         "gain_experience",
+        "grant_attribute_xp",
+        "add_stat_xp",
     }
 
 
@@ -213,6 +221,7 @@ def resolve_tool_calls(
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
     leveling_tool_definitions=None,
+    attribute_tool_definitions=None,
 ):
     tool_calls = first_message.tool_calls or []
 
@@ -233,6 +242,7 @@ def resolve_tool_calls(
                 resource_tool_definitions,
                 status_effect_tool_definitions,
                 leveling_tool_definitions,
+                attribute_tool_definitions,
             )
 
             filtered_fake_calls = [
@@ -273,6 +283,7 @@ def execute_normalized_tool(
     resource_tool_definitions,
     status_effect_tool_definitions,
     leveling_tool_definitions,
+    attribute_tool_definitions,
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
@@ -280,6 +291,7 @@ def execute_normalized_tool(
     execute_resource_tool,
     execute_status_effect_tool,
     execute_leveling_tool,
+    execute_attribute_tool,
 ):
     state_tool_names = [t["function"]["name"] for t in state_tool_definitions]
     inventory_tool_names = [t["function"]["name"] for t in inventory_tool_definitions]
@@ -288,6 +300,7 @@ def execute_normalized_tool(
     resource_tool_names = [t["function"]["name"] for t in resource_tool_definitions]
     status_effect_tool_names = [t["function"]["name"] for t in status_effect_tool_definitions]
     leveling_tool_names = [t["function"]["name"] for t in leveling_tool_definitions]
+    attribute_tool_names = [t["function"]["name"] for t in attribute_tool_definitions]
 
     if normalized_tool_name in state_tool_names:
         return execute_state_tool(
@@ -333,6 +346,13 @@ def execute_normalized_tool(
 
     if normalized_tool_name in leveling_tool_names and execute_leveling_tool:
         return execute_leveling_tool(
+            character_id=character_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args
+        )
+
+    if normalized_tool_name in attribute_tool_names and execute_attribute_tool:
+        return execute_attribute_tool(
             character_id=character_id,
             tool_name=normalized_tool_name,
             arguments=normalized_tool_args

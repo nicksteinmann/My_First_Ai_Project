@@ -77,6 +77,7 @@ class CharacterAttribute(db.Model):
     intelligence = db.Column(db.Integer, default=5, nullable=False)
     perception = db.Column(db.Integer, default=5, nullable=False)
     charisma = db.Column(db.Integer, default=5, nullable=False)
+    attribute_xp_json = db.Column(db.Text, default="{}", nullable=False)
 
     character = db.relationship("Character", back_populates="attributes")
 

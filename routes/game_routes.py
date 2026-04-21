@@ -21,6 +21,7 @@ def register_game_routes(
     resource_tool_definitions,
     status_effect_tool_definitions,
     leveling_tool_definitions,
+    attribute_tool_definitions,
 
     execute_state_tool,
     execute_inventory_tool,
@@ -29,6 +30,7 @@ def register_game_routes(
     execute_resource_tool,
     execute_status_effect_tool,
     execute_leveling_tool,
+    execute_attribute_tool,
 
     resolve_tool_calls,
     parse_tool_call_payload,
@@ -132,6 +134,7 @@ def register_game_routes(
                 resource_tool_definitions=resource_tool_definitions,
                 status_effect_tool_definitions=status_effect_tool_definitions,
                 leveling_tool_definitions=leveling_tool_definitions,
+                attribute_tool_definitions=attribute_tool_definitions,
 
                 execute_state_tool=execute_state_tool,
                 execute_inventory_tool=execute_inventory_tool,
@@ -140,6 +143,7 @@ def register_game_routes(
                 execute_resource_tool=execute_resource_tool,
                 execute_status_effect_tool=execute_status_effect_tool,
                 execute_leveling_tool=execute_leveling_tool,
+                execute_attribute_tool=execute_attribute_tool,
 
                 resolve_tool_calls=resolve_tool_calls,
                 parse_tool_call_payload=parse_tool_call_payload,
