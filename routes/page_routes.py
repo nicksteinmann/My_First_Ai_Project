@@ -4,6 +4,7 @@ from models import User, Character, Campaign, CampaignQuest
 from data.character_presets import RACES, CLASSES
 
 from services.llm_service import check_provider_availability
+from services.leveling import serialize_level_progression
 from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
 
 
@@ -90,6 +91,7 @@ def register_page_routes(
                 active_quest = get_active_campaign_quest(campaign)
                 inventory_data = get_character_inventory_data(character.id)
                 status_effects = get_character_status_effects(character.id)
+                level_progression = serialize_level_progression(character)
 
                 serialized_characters.append({
                     "id": character.id,
@@ -97,6 +99,8 @@ def register_page_routes(
                     "race": character.race,
                     "class_name": character.class_name,
                     "level": character.level,
+                    "xp": character.xp,
+                    "level_progression": level_progression,
                     "status": character.status,
                     "status_effects": status_effects,
                     "currency": character.currency_json,

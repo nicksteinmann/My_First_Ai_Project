@@ -1,5 +1,6 @@
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
+from services.leveling import serialize_level_progression
 from services.status_effects import serialize_status_effects
 
 
@@ -113,6 +114,7 @@ def serialize_character(
     active_quest = get_active_campaign_quest(campaign)
     inventory_data = get_character_inventory_data(character.id)
     status_effects = get_character_status_effects(character.id)
+    level_progression = serialize_level_progression(character)
 
     hp_current = resources.hp_current if resources else 0
     hp_max = resources.hp_max if resources else 0
@@ -132,6 +134,8 @@ def serialize_character(
         "race": character.race,
         "class_name": character.class_name,
         "level": character.level,
+        "xp": character.xp,
+        "level_progression": level_progression,
         "status": character.status,
         "status_effects": status_effects,
         "status_effect_summary": ", ".join(effect["name"] for effect in status_effects) if status_effects else "None",

@@ -15,6 +15,7 @@ from models import (
 from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item
+from services.leveling import serialize_level_progression
 
 
 def register_character_routes(
@@ -45,6 +46,7 @@ def register_character_routes(
             active_quest = get_active_campaign_quest(campaign)
             inventory_data = get_character_inventory_data(character.id)
             status_effects = get_character_status_effects(character.id)
+            level_progression = serialize_level_progression(character)
 
             completed_quests_count = 0
             campaigns_count = Campaign.query.filter_by(character_id=character.id).count()
@@ -61,6 +63,8 @@ def register_character_routes(
                 "race": character.race,
                 "class_name": character.class_name,
                 "level": character.level,
+                "xp": character.xp,
+                "level_progression": level_progression,
                 "status": character.status,
                 "status_effects": status_effects,
                 "currency": character.currency_json,
@@ -294,6 +298,27 @@ def register_character_routes(
                         "quantity": 1,
                         "hand_usage": "one_handed",
                         "item_type": "utility",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_xp_potion",
+                        "name": "Beginner's Insight Draught",
+                        "description": "A shimmering test draught that grants 500 character XP when consumed.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                        "special_effect": {
+                            "tool": "add_xp",
+                            "amount": 500,
+                            "reason": "Consumed Beginner's Insight Draught",
+                        },
                     },
                     "quantity": 1,
                     "container_id": "base_inventory",

@@ -33,6 +33,7 @@ def run_game_turn(
     equipment_tool_definitions,
     resource_tool_definitions,
     status_effect_tool_definitions,
+    leveling_tool_definitions,
 
     execute_state_tool,
     execute_inventory_tool,
@@ -40,6 +41,7 @@ def run_game_turn(
     execute_equipment_tool,
     execute_resource_tool,
     execute_status_effect_tool,
+    execute_leveling_tool,
 
     resolve_tool_calls,
     parse_tool_call_payload,
@@ -60,6 +62,7 @@ def run_game_turn(
         + equipment_tool_definitions
         + resource_tool_definitions
         + status_effect_tool_definitions
+        + leveling_tool_definitions
     )
     debug_tool_event("game turn started", {
         "turn_id": turn_id,
@@ -94,6 +97,7 @@ def run_game_turn(
             equipment_tool_definitions,
             resource_tool_definitions,
             status_effect_tool_definitions,
+            leveling_tool_definitions,
         )
 
         # -------------------------
@@ -146,12 +150,14 @@ def run_game_turn(
                 equipment_tool_definitions=equipment_tool_definitions,
                 resource_tool_definitions=resource_tool_definitions,
                 status_effect_tool_definitions=status_effect_tool_definitions,
+                leveling_tool_definitions=leveling_tool_definitions,
                 execute_state_tool=execute_state_tool,
                 execute_inventory_tool=execute_inventory_tool,
                 execute_currency_tool=execute_currency_tool,
                 execute_equipment_tool=execute_equipment_tool,
                 execute_resource_tool=execute_resource_tool,
                 execute_status_effect_tool=execute_status_effect_tool,
+                execute_leveling_tool=execute_leveling_tool,
             )
 
             if isinstance(tool_result, dict) and turn_id:

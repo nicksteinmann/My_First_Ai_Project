@@ -70,7 +70,21 @@
                                 {% endif %}
                             </h2>
                             <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
-                            <p><strong>Level:</strong> {{ character.level }}</p>
+                            <div class="level-summary compact">
+                                <div class="stat-row">
+                                    <span><strong>Level:</strong> {{ character.level }}</span>
+                                    <span>
+                                        {% if character.level_progression.is_max_level %}
+                                            {{ character.level_progression.total_xp }} XP
+                                        {% else %}
+                                            {{ character.level_progression.xp_into_level }} / {{ character.level_progression.xp_needed_this_level }} XP
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="bar xp-bar">
+                                    <div class="bar-fill xp-fill" style="width: {{ character.level_progression.progress_percent }}%"></div>
+                                </div>
+                            </div>
                             <p><strong>Status:</strong> {{ character.status }}</p>
                             <div class="status-effect-row compact">
                                 {% if character.status_effects %}
