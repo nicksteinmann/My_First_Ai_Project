@@ -43,6 +43,7 @@ from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_too
 from services.leveling import LEVELING_TOOL_DEFINITIONS, execute_leveling_tool
 from services.resources import RESOURCE_TOOL_DEFINITIONS, execute_resource_tool
 from services.serializers import serialize_character
+from services.skills import SKILL_TOOL_DEFINITIONS, ensure_core_skill_definitions, execute_skill_tool
 from services.status_effects import STATUS_EFFECT_TOOL_DEFINITIONS, execute_status_effect_tool
 from services.story import (
     get_recent_story_messages,
@@ -77,6 +78,20 @@ def ensure_sqlite_schema_compatibility() -> None:
         ))
         db.session.commit()
 
+    skill_columns = db.session.execute(text("PRAGMA table_info(skill_definitions)")).fetchall()
+    skill_column_names = {column[1] for column in skill_columns}
+    skill_column_statements = {
+        "icon": "ALTER TABLE skill_definitions ADD COLUMN icon VARCHAR(12)",
+        "short_code": "ALTER TABLE skill_definitions ADD COLUMN short_code VARCHAR(8)",
+        "is_custom": "ALTER TABLE skill_definitions ADD COLUMN is_custom BOOLEAN NOT NULL DEFAULT 0",
+    }
+
+    for column_name, statement in skill_column_statements.items():
+        if column_name not in skill_column_names:
+            db.session.execute(text(statement))
+
+    db.session.commit()
+
 
 def create_app() -> Flask:
     """
@@ -99,6 +114,7 @@ def create_app() -> Flask:
         with app.app_context():
             db.create_all()
             ensure_sqlite_schema_compatibility()
+            ensure_core_skill_definitions()
     except SQLAlchemyError as exc:
         logger.exception("Database initialization failed.")
         raise RuntimeError("Failed to initialize the database.") from exc
@@ -288,6 +304,7 @@ def create_app() -> Flask:
         STATUS_EFFECT_TOOL_DEFINITIONS,
         LEVELING_TOOL_DEFINITIONS,
         ATTRIBUTE_TOOL_DEFINITIONS,
+        SKILL_TOOL_DEFINITIONS,
         execute_state_tool,
         execute_inventory_tool,
         execute_currency_tool,
@@ -296,6 +313,7 @@ def create_app() -> Flask:
         execute_status_effect_tool,
         execute_leveling_tool,
         execute_attribute_tool,
+        execute_skill_tool,
         resolve_tool_calls,
         parse_tool_call_payload,
         normalize_tool_call,

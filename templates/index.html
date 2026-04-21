@@ -129,6 +129,27 @@
                     {% endfor %}
                 </div>
             </div>
+
+            <div class="home-character-bottom">
+                <h3>Skills</h3>
+                <div id="skill-chip-root" class="skill-chip-row">
+                    {% if active_character.skills %}
+                        {% for skill in active_character.skills %}
+                            <span
+                                class="skill-chip progress-chip"
+                                title="{{ skill.name }} - Level {{ skill.level }} - {{ skill.progression.xp_into_level }} / {{ skill.progression.xp_needed_this_level }} XP{% if skill.is_custom %} - Custom{% endif %}"
+                            >
+                                <span class="progress-chip-main">{{ skill.icon }} {{ skill.level }}</span>
+                                <span class="attribute-mini-bar">
+                                    <span class="skill-mini-fill" style="width: {{ skill.progression.progress_percent }}%"></span>
+                                </span>
+                            </span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="muted-text">No learned skills</span>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </section>
 
@@ -329,6 +350,7 @@
         updateResourceBar("energy", character.stats?.energy, character.stats?.energy_max);
         updateStatusEffects(character.status_effects || []);
         updateAttributes(character.attributes || []);
+        updateSkills(character.skills || []);
 
         const inventoryRoot = document.getElementById("inventory-container-root");
         const equipmentRoot = document.getElementById("equipment-slot-root");
@@ -447,6 +469,35 @@
                     <span class="attribute-chip-main">${attribute.icon} ${attribute.level}</span>
                     <span class="attribute-mini-bar">
                         <span class="attribute-mini-fill" style="width: ${progressPercent}%"></span>
+                    </span>
+                </span>
+            `;
+        });
+        root.innerHTML = html;
+    }
+
+    function updateSkills(skills) {
+        const root = document.getElementById("skill-chip-root");
+        if (!root) return;
+
+        if (!skills.length) {
+            root.innerHTML = `<span class="muted-text">No learned skills</span>`;
+            return;
+        }
+
+        let html = "";
+        skills.forEach(skill => {
+            const progression = skill.progression || {};
+            const xpIntoLevel = progression.xp_into_level ?? 0;
+            const xpNeeded = progression.xp_needed_this_level ?? 0;
+            const progressPercent = progression.progress_percent ?? 0;
+            const customLabel = skill.is_custom ? " - Custom" : "";
+            const tooltip = `${skill.name} - Level ${skill.level} - ${xpIntoLevel} / ${xpNeeded} XP${customLabel}`;
+            html += `
+                <span class="skill-chip progress-chip" title="${tooltip}">
+                    <span class="progress-chip-main">${skill.icon} ${skill.level}</span>
+                    <span class="attribute-mini-bar">
+                        <span class="skill-mini-fill" style="width: ${progressPercent}%"></span>
                     </span>
                 </span>
             `;

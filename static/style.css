@@ -269,7 +269,24 @@ textarea {
     padding: 0.38rem 0.55rem;
 }
 
+.progress-chip {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0.28rem;
+    min-width: 3.7rem;
+    padding: 0.38rem 0.55rem;
+}
+
 .attribute-chip-main {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+
+.progress-chip-main {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -292,6 +309,13 @@ textarea {
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, #22c55e, #14b8a6);
+}
+
+.skill-mini-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #a855f7, #06b6d4);
 }
 
 .character-portrait {

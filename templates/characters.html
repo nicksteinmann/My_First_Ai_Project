@@ -162,6 +162,25 @@
                                 </span>
                             {% endfor %}
                         </div>
+
+                        <h4>Skills</h4>
+                        <div class="skill-chip-row">
+                            {% if character.skills %}
+                                {% for skill in character.skills %}
+                                    <span
+                                        class="skill-chip progress-chip"
+                                        title="{{ skill.name }} - Level {{ skill.level }} - {{ skill.progression.xp_into_level }} / {{ skill.progression.xp_needed_this_level }} XP{% if skill.is_custom %} - Custom{% endif %}"
+                                    >
+                                        <span class="progress-chip-main">{{ skill.icon }} {{ skill.level }}</span>
+                                        <span class="attribute-mini-bar">
+                                            <span class="skill-mini-fill" style="width: {{ skill.progression.progress_percent }}%"></span>
+                                        </span>
+                                    </span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="muted-text">No learned skills</span>
+                            {% endif %}
+                        </div>
                     </div>
 
                     <div class="character-entry-right state-info">

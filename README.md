@@ -86,6 +86,7 @@ The AI must not directly modify game state. Every state change must go through v
 - services/leveling/
 - services/prompt_builder/
 - services/serializers/
+- services/skills/
 - services/story/
 - services/tools/
 
@@ -305,6 +306,53 @@ Tool:
 
 - add_attribute_xp
 
+### Skill Progression
+
+Backend-controlled learned skills for concrete abilities.
+
+Core skills:
+
+- Swordsmanship
+- Axes & Hammers
+- Polearms
+- Archery
+- Dodging
+- Blocking
+- Stealth
+- Lockpicking
+- Pickpocketing
+- Trap Disarming
+- Climbing
+- Athletics
+- Arcane Lore
+- Herbalism
+- Medicine
+- Survival
+- Persuasion
+- Deception
+- Intimidation
+- Insight
+
+Rules:
+
+- Level 0 represents an untrained skill.
+- Unlocking a skill from level 0 to level 1 costs 20 XP.
+- After level 1, skill XP uses the normal progression curve: `100 * level^1.55`.
+- Skills are separate from attributes.
+- Attributes will later act as modifiers for checks, but they do not directly replace skill training.
+- Core skills are seeded at app startup.
+- Custom skills can be created when an activity is repeatable, learnable, broad enough, and no core skill fits.
+- Custom skills are stored in `skill_definitions` with `is_custom=True`.
+- Characters learn skills through `character_skills`.
+- Custom skill creation is limited per character to prevent uncontrolled growth.
+- Skill chips use emoji for core skills and fall back to short codes for custom skills.
+
+Tools:
+
+- get_skills
+- add_skill_xp
+- create_custom_skill
+
 ### Status Effects
 
 Character status effect tables already exist and are now serialized into the UI.
@@ -385,6 +433,7 @@ Current displays:
 - Active character
 - Stats
 - Attributes
+- Skills
 - Adventure chat
 - Provider selection
 - Campaign state
@@ -413,14 +462,14 @@ Working:
 - Status effect display and tools
 - Character level progression and XP tool
 - Automatic attribute XP from character level-ups
+- Skill progression and skill XP tools
 - Multi-system tool pipeline
 - UI state refresh after game turns
 
 Known limitations:
 
 - No stat modifiers from equipment yet
-- No direct attribute training tools yet
-- No skill XP / skill level progression yet
+- No advanced custom skill deduplication beyond normalized names yet
 - No level-up choice or skill point spending yet
 - No automatic status-effect duration ticking yet
 - No status-effect stat/resource modifiers yet
@@ -439,7 +488,6 @@ High priority:
 
 - Equipment stat modifiers
 - Direct attribute training rules
-- Skill XP and skill level progression
 - Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
 - Advanced belt and pouch attachment rules

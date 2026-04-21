@@ -17,6 +17,7 @@ from services.serializers.character_serializer import get_character_inventory_da
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item
 from services.leveling import serialize_level_progression
+from services.skills import serialize_character_skills
 
 
 def register_character_routes(
@@ -49,6 +50,7 @@ def register_character_routes(
             status_effects = get_character_status_effects(character.id)
             level_progression = serialize_level_progression(character)
             serialized_attributes = serialize_attributes(attributes)
+            serialized_skills = serialize_character_skills(character)
 
             completed_quests_count = 0
             campaigns_count = Campaign.query.filter_by(character_id=character.id).count()
@@ -90,6 +92,7 @@ def register_character_routes(
                 "inventory_total_weight": inventory_data["total_weight"],
                 "inventory_containers": inventory_data["containers"],
                 "attributes": serialized_attributes,
+                "skills": serialized_skills,
             })
 
         return render_template(
@@ -383,6 +386,55 @@ def register_character_routes(
                                 "charisma": 10000,
                             },
                             "reason": "Consumed Draught of Mind Training",
+                        },
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_sword_training_manual",
+                        "name": "Sword Training Manual",
+                        "description": "A compact practice manual that grants 10000 XP to Swordsmanship when studied.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                        "special_effect": {
+                            "tool": "add_skill_xp",
+                            "skill_name": "Swordsmanship",
+                            "amount": 10000,
+                            "reason": "Studied Sword Training Manual",
+                        },
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_cooking_notes",
+                        "name": "Beginner's Cooking Notes",
+                        "description": "Simple cooking notes that create or improve the custom skill Cooking by 10000 XP when studied.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                        "special_effect": {
+                            "tool": "add_skill_xp",
+                            "skill_name": "Cooking",
+                            "amount": 10000,
+                            "allow_create": True,
+                            "linked_attribute": "intelligence",
+                            "category": "Custom",
+                            "icon": "🍳",
+                            "short_code": "CKG",
+                            "reason": "Studied Beginner's Cooking Notes",
                         },
                     },
                     "quantity": 1,
