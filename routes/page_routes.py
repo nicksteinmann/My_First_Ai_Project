@@ -3,6 +3,7 @@ from flask import render_template, redirect, url_for, session, flash, jsonify
 from models import User, Character, Campaign, CampaignQuest
 from data.character_presets import RACES, CLASSES
 
+from services.attributes import serialize_attributes
 from services.llm_service import check_provider_availability
 from services.leveling import serialize_level_progression
 from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
@@ -92,6 +93,7 @@ def register_page_routes(
                 inventory_data = get_character_inventory_data(character.id)
                 status_effects = get_character_status_effects(character.id)
                 level_progression = serialize_level_progression(character)
+                serialized_attributes = serialize_attributes(attributes)
 
                 serialized_characters.append({
                     "id": character.id,
@@ -110,9 +112,7 @@ def register_page_routes(
                     "max_mana": resources.mana_max if resources else 0,
                     "energy": resources.energy_current if resources else 0,
                     "max_energy": resources.energy_max if resources else 0,
-                    "strength": attributes.strength if attributes else 0,
-                    "dexterity": attributes.dexterity if attributes else 0,
-                    "intelligence": attributes.intelligence if attributes else 0,
+                    "attributes": serialized_attributes,
                     "location": current_location.name if current_location else "Unknown",
                     "time": campaign.current_ingame_time if campaign else "Unknown",
                     "quest": active_quest.title if active_quest else "No active quest",

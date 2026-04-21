@@ -12,6 +12,7 @@ from models import (
     CampaignQuest,
 )
 
+from services.attributes import serialize_attributes
 from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item
@@ -47,6 +48,7 @@ def register_character_routes(
             inventory_data = get_character_inventory_data(character.id)
             status_effects = get_character_status_effects(character.id)
             level_progression = serialize_level_progression(character)
+            serialized_attributes = serialize_attributes(attributes)
 
             completed_quests_count = 0
             campaigns_count = Campaign.query.filter_by(character_id=character.id).count()
@@ -87,10 +89,7 @@ def register_character_routes(
                 "inventory_summary": inventory_data["inventory_summary"],
                 "inventory_total_weight": inventory_data["total_weight"],
                 "inventory_containers": inventory_data["containers"],
-                "skill_1": attributes.strength if attributes else 0,
-                "skill_2": attributes.dexterity if attributes else 0,
-                "skill_3": attributes.intelligence if attributes else 0,
-                "skill_4": attributes.perception if attributes else 0
+                "attributes": serialized_attributes,
             })
 
         return render_template(
@@ -335,6 +334,56 @@ def register_character_routes(
                         "quantity": 1,
                         "hand_usage": "none",
                         "item_type": "consumable",
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_body_attribute_draught",
+                        "name": "Draught of Body Training",
+                        "description": "A dense training draught that grants 10000 XP to Strength, Dexterity and Constitution when consumed.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                        "special_effect": {
+                            "tool": "add_attribute_xp",
+                            "grants": {
+                                "strength": 10000,
+                                "dexterity": 10000,
+                                "constitution": 10000,
+                            },
+                            "reason": "Consumed Draught of Body Training",
+                        },
+                    },
+                    "quantity": 1,
+                    "container_id": "base_inventory",
+                },
+                {
+                    "item": {
+                        "item_id": "starter_mind_attribute_draught",
+                        "name": "Draught of Mind Training",
+                        "description": "A sharp training draught that grants 10000 XP to Intelligence, Perception and Charisma when consumed.",
+                        "size": "small",
+                        "volume": 0.5,
+                        "weight": 0.5,
+                        "stackable": False,
+                        "quantity": 1,
+                        "hand_usage": "none",
+                        "item_type": "consumable",
+                        "special_effect": {
+                            "tool": "add_attribute_xp",
+                            "grants": {
+                                "intelligence": 10000,
+                                "perception": 10000,
+                                "charisma": 10000,
+                            },
+                            "reason": "Consumed Draught of Mind Training",
+                        },
                     },
                     "quantity": 1,
                     "container_id": "base_inventory",

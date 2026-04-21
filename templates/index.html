@@ -114,10 +114,18 @@
             </div>
 
             <div class="home-character-bottom">
-                <h3>Skills</h3>
-                <div class="skill-chip-row">
-                    {% for skill in active_character.skills %}
-                        <span class="skill-chip">{{ skill.icon }} {{ skill.level }}</span>
+                <h3>Attributes</h3>
+                <div id="attribute-chip-root" class="skill-chip-row">
+                    {% for attribute in active_character.attributes %}
+                        <span
+                            class="skill-chip attribute-chip"
+                            title="{{ attribute.label }} - Level {{ attribute.level }} - {{ attribute.progression.xp_into_level }} / {{ attribute.progression.xp_needed_this_level }} XP"
+                        >
+                            <span class="attribute-chip-main">{{ attribute.icon }} {{ attribute.level }}</span>
+                            <span class="attribute-mini-bar">
+                                <span class="attribute-mini-fill" style="width: {{ attribute.progression.progress_percent }}%"></span>
+                            </span>
+                        </span>
                     {% endfor %}
                 </div>
             </div>
@@ -320,6 +328,7 @@
         updateResourceBar("mana", character.stats?.mana, character.stats?.mana_max);
         updateResourceBar("energy", character.stats?.energy, character.stats?.energy_max);
         updateStatusEffects(character.status_effects || []);
+        updateAttributes(character.attributes || []);
 
         const inventoryRoot = document.getElementById("inventory-container-root");
         const equipmentRoot = document.getElementById("equipment-slot-root");
@@ -413,6 +422,34 @@
         let html = "";
         statusEffects.forEach(effect => {
             html += `<span class="status-effect-chip">${effect.name} (${effect.duration_remaining})</span>`;
+        });
+        root.innerHTML = html;
+    }
+
+    function updateAttributes(attributes) {
+        const root = document.getElementById("attribute-chip-root");
+        if (!root) return;
+
+        if (!attributes.length) {
+            root.innerHTML = `<span class="muted-text">No attributes</span>`;
+            return;
+        }
+
+        let html = "";
+        attributes.forEach(attribute => {
+            const progression = attribute.progression || {};
+            const xpIntoLevel = progression.xp_into_level ?? 0;
+            const xpNeeded = progression.xp_needed_this_level ?? 0;
+            const progressPercent = progression.progress_percent ?? 0;
+            const tooltip = `${attribute.label} - Level ${attribute.level} - ${xpIntoLevel} / ${xpNeeded} XP`;
+            html += `
+                <span class="skill-chip attribute-chip" title="${tooltip}">
+                    <span class="attribute-chip-main">${attribute.icon} ${attribute.level}</span>
+                    <span class="attribute-mini-bar">
+                        <span class="attribute-mini-fill" style="width: ${progressPercent}%"></span>
+                    </span>
+                </span>
+            `;
         });
         root.innerHTML = html;
     }

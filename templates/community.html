@@ -160,9 +160,19 @@
                                         <hr class="divider">
 
                                         <h4>Attributes</h4>
-                                        <p><strong>⚔️ Strength:</strong> {{ character.strength }}</p>
-                                        <p><strong>🎯 Dexterity:</strong> {{ character.dexterity }}</p>
-                                        <p><strong>🧠 Intelligence:</strong> {{ character.intelligence }}</p>
+                                        <div class="skill-chip-row">
+                                            {% for attribute in character.attributes %}
+                                                <span
+                                                    class="skill-chip attribute-chip"
+                                                    title="{{ attribute.label }} - Level {{ attribute.level }} - {{ attribute.progression.xp_into_level }} / {{ attribute.progression.xp_needed_this_level }} XP"
+                                                >
+                                                    <span class="attribute-chip-main">{{ attribute.icon }} {{ attribute.level }}</span>
+                                                    <span class="attribute-mini-bar">
+                                                        <span class="attribute-mini-fill" style="width: {{ attribute.progression.progress_percent }}%"></span>
+                                                    </span>
+                                                </span>
+                                            {% endfor %}
+                                        </div>
                                     </div>
 
                                 </article>

@@ -17,6 +17,7 @@ import logging
 from typing import Optional
 
 from flask import Flask, session
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import (
@@ -35,6 +36,7 @@ from routes import (
     register_game_routes,
 )
 from services.adventure_state import STATE_TOOL_DEFINITIONS, execute_state_tool
+from services.attributes import ATTRIBUTE_TOOL_DEFINITIONS, execute_attribute_tool
 from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
 from services.equipment import EQUIPMENT_TOOL_DEFINITIONS, execute_equipment_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
@@ -57,6 +59,25 @@ from services.tools import (
 logger = logging.getLogger(__name__)
 
 
+def ensure_sqlite_schema_compatibility() -> None:
+    """
+    Apply tiny SQLite-only compatibility upgrades for MVP-era schema changes.
+
+    Flask-SQLAlchemy's create_all creates missing tables, but it does not add
+    new columns to existing tables. This keeps local development databases
+    usable until a real migration layer is introduced.
+    """
+    columns = db.session.execute(text("PRAGMA table_info(character_attributes)")).fetchall()
+    column_names = {column[1] for column in columns}
+
+    if "attribute_xp_json" not in column_names:
+        db.session.execute(text(
+            "ALTER TABLE character_attributes "
+            "ADD COLUMN attribute_xp_json TEXT NOT NULL DEFAULT '{}'"
+        ))
+        db.session.commit()
+
+
 def create_app() -> Flask:
     """
     Create, configure, and return the Flask application instance.
@@ -77,6 +98,7 @@ def create_app() -> Flask:
     try:
         with app.app_context():
             db.create_all()
+            ensure_sqlite_schema_compatibility()
     except SQLAlchemyError as exc:
         logger.exception("Database initialization failed.")
         raise RuntimeError("Failed to initialize the database.") from exc
@@ -265,6 +287,7 @@ def create_app() -> Flask:
         RESOURCE_TOOL_DEFINITIONS,
         STATUS_EFFECT_TOOL_DEFINITIONS,
         LEVELING_TOOL_DEFINITIONS,
+        ATTRIBUTE_TOOL_DEFINITIONS,
         execute_state_tool,
         execute_inventory_tool,
         execute_currency_tool,
@@ -272,6 +295,7 @@ def create_app() -> Flask:
         execute_resource_tool,
         execute_status_effect_tool,
         execute_leveling_tool,
+        execute_attribute_tool,
         resolve_tool_calls,
         parse_tool_call_payload,
         normalize_tool_call,

@@ -79,6 +79,7 @@ The AI must not directly modify game state. Every state change must go through v
 ### Services
 
 - services/adventure_state/
+- services/attributes/
 - services/currency/
 - services/equipment/
 - services/inventory/
@@ -264,6 +265,46 @@ Current class scaling:
 
 Note: skill XP, skill levels, skill points, and level-up choices are future work.
 
+### Attribute Progression
+
+Backend-controlled attribute progression attached to character level-ups.
+
+Attributes:
+
+- strength
+- dexterity
+- constitution
+- intelligence
+- perception
+- charisma
+
+Rules:
+
+- Attribute values are separate from future skill levels.
+- Attribute XP uses the same progression curve as character level XP: `100 * level^1.55`.
+- Attribute XP is stored as total lifetime XP per attribute in `attribute_xp_json`.
+- Character level-ups automatically grant attribute XP in the backend.
+- Attribute XP can also be granted directly through the `add_attribute_xp` backend tool.
+- The AI does not need an extra tool call for attribute progression after `add_xp`.
+- Batch attribute XP grants are supported so one tool call can update multiple attributes.
+- The awarded attribute XP is based on the character level interval, not the current attribute level.
+- A class can grant at most 25% of the matching level interval to its strongest attribute.
+- Existing local SQLite databases are upgraded with a small compatibility column check until real migrations exist.
+
+Current class focus:
+
+- Knight: strength and constitution
+- Mage: intelligence
+- Rogue: dexterity and perception
+- Priest: charisma and intelligence
+- Ranger: perception and dexterity
+
+Note: direct training actions, long-term training time rules, equipment modifiers, and status-effect modifiers are future work.
+
+Tool:
+
+- add_attribute_xp
+
 ### Status Effects
 
 Character status effect tables already exist and are now serialized into the UI.
@@ -343,7 +384,7 @@ Current displays:
 
 - Active character
 - Stats
-- Skills / attributes
+- Attributes
 - Adventure chat
 - Provider selection
 - Campaign state
@@ -371,12 +412,14 @@ Working:
 - Character status sync when HP reaches 0
 - Status effect display and tools
 - Character level progression and XP tool
+- Automatic attribute XP from character level-ups
 - Multi-system tool pipeline
 - UI state refresh after game turns
 
 Known limitations:
 
 - No stat modifiers from equipment yet
+- No direct attribute training tools yet
 - No skill XP / skill level progression yet
 - No level-up choice or skill point spending yet
 - No automatic status-effect duration ticking yet
@@ -395,6 +438,7 @@ Known limitations:
 High priority:
 
 - Equipment stat modifiers
+- Direct attribute training rules
 - Skill XP and skill level progression
 - Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
