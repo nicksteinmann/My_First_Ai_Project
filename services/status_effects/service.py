@@ -11,6 +11,47 @@ from typing import Any, Dict, Optional
 from models import db, Character, CharacterStatusEffect, StatusEffectDefinition
 
 
+STATUS_EFFECT_ICONS = {
+    "poisoned": "☠️",
+    "poison": "☠️",
+    "bleeding": "🩸",
+    "bleed": "🩸",
+    "stunned": "💫",
+    "stun": "💫",
+    "blessed": "✨",
+    "blessing": "✨",
+    "burning": "🔥",
+    "burned": "🔥",
+    "frozen": "🧊",
+    "chilled": "🧊",
+    "sleeping": "💤",
+    "asleep": "💤",
+    "frightened": "😨",
+    "feared": "😨",
+    "cursed": "🔮",
+    "curse": "🔮",
+    "exhausted": "🥱",
+    "fatigued": "🥱",
+    "overloaded": "🎒",
+    "overencumbered": "🎒",
+    "hidden": "🌫️",
+    "invisible": "🌫️",
+    "regenerating": "💚",
+    "healing": "💚",
+    "shielded": "🛡️",
+    "protected": "🛡️",
+}
+
+EFFECT_TYPE_ICONS = {
+    "buff": "✨",
+    "blessing": "✨",
+    "debuff": "⚠️",
+    "condition": "⚠️",
+    "poison": "☠️",
+    "injury": "🩸",
+}
+
+
 class StatusEffectOperationResult:
     """Serializable result for status-effect tool operations."""
 
@@ -67,6 +108,19 @@ def _coerce_duration(duration_turns: Any) -> int:
     return duration
 
 
+def _status_effect_icon(name: str, effect_type: str) -> str:
+    """Return a compact UI icon for a status effect."""
+
+    normalized_name = (name or "").strip().lower()
+    normalized_type = (effect_type or "").strip().lower()
+
+    for keyword, icon in STATUS_EFFECT_ICONS.items():
+        if keyword in normalized_name:
+            return icon
+
+    return EFFECT_TYPE_ICONS.get(normalized_type, "⚠️")
+
+
 def _get_or_create_definition(
     name: str,
     effect_type: str,
@@ -110,6 +164,10 @@ def serialize_status_effects(character_id: int) -> list[Dict[str, Any]]:
             "name": definition.name if definition else "Unknown Effect",
             "description": definition.description if definition else "",
             "effect_type": definition.effect_type if definition else "unknown",
+            "icon": _status_effect_icon(
+                definition.name if definition else "",
+                definition.effect_type if definition else "",
+            ),
             "duration_remaining": row.duration_remaining,
             "source_text": row.source_text or "",
         })

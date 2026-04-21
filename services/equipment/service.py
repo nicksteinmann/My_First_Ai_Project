@@ -518,6 +518,15 @@ def serialize_equipment(character_id: int):
     serialized_slots = []
     equipped_labels = []
 
+    def build_item_tooltip(item: Dict[str, Any]) -> str:
+        details = [item.get("name", "Unknown Item")]
+        if item.get("description"):
+            details.append(item["description"])
+        details.append(f"Size: {str(item.get('size', 'small')).title()}")
+        details.append(f"Volume: {float(item.get('volume', 0) or 0):.1f}")
+        details.append(f"Weight: {float(item.get('weight', 0) or 0):.1f}")
+        return " | ".join(details)
+
     for slot in EQUIPMENT_SLOTS:
         item = slots.get(slot)
 
@@ -526,6 +535,7 @@ def serialize_equipment(character_id: int):
                 "slot": slot,
                 "label": SLOT_LABELS[slot],
                 "item": f"{item.get('name', 'Occupied')} (occupied)",
+                "title": f"Occupied by {item.get('name', 'Occupied')}",
                 "is_empty": False,
                 "is_placeholder": True,
             })
@@ -539,6 +549,7 @@ def serialize_equipment(character_id: int):
                 "label": SLOT_LABELS[slot],
                 "item": label,
                 "item_id": item.get("item_id"),
+                "title": build_item_tooltip(item),
                 "is_empty": False,
                 "is_placeholder": False,
             })
@@ -547,6 +558,7 @@ def serialize_equipment(character_id: int):
                 "slot": slot,
                 "label": SLOT_LABELS[slot],
                 "item": None,
+                "title": "",
                 "is_empty": True,
                 "is_placeholder": False,
             })
