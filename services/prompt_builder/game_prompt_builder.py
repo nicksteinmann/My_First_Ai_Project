@@ -20,6 +20,7 @@ Active Character:
 - Mana: {active_character['stats']['mana']} / {active_character['stats']['mana_max']}
 - Energy: {active_character['stats']['energy']} / {active_character['stats']['energy_max']}
 - Attributes: {active_character.get('attribute_summary', 'None')}
+- Skills: {active_character.get('skill_summary', 'None')}
 - Status Effects: {active_character.get('status_effect_summary', 'None')}
 
 Rules:
@@ -59,6 +60,12 @@ State Changes:
     - Valid attributes: strength, dexterity, constitution, intelligence, perception, charisma.
     - Use the grants object when several attributes gain XP from the same action.
     - When an attribute consumable is used, remove the consumed item from inventory and call add_attribute_xp.
+- Use skill tools for learned abilities such as sword fighting, lockpicking, stealth, healing, survival or social techniques.
+    - Use get_skills when you need to inspect learned skills.
+    - Use add_skill_xp when a known skill improves through meaningful use, training or rewards.
+    - Use create_custom_skill only when the activity is repeatable, learnable, broad enough, and no core skill fits.
+    - Do not create duplicate custom skills for similar activities.
+    - When a skill consumable is used, remove the consumed item from inventory and call the listed skill tool.
 - Use currency tools when money is gained, spent, lost, or received.
     - Use add_currency for gains
     - Use remove_currency for spending or loss

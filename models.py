@@ -107,6 +107,9 @@ class SkillDefinition(db.Model):
     category = db.Column(db.String(40), nullable=False)
     linked_attribute = db.Column(db.String(40), nullable=False)
     description = db.Column(db.Text)
+    icon = db.Column(db.String(12))
+    short_code = db.Column(db.String(8))
+    is_custom = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     character_skills = db.relationship("CharacterSkill", back_populates="skill")

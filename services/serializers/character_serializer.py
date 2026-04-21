@@ -2,6 +2,7 @@ from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression
+from services.skills import serialize_character_skills
 from services.status_effects import serialize_status_effects
 
 
@@ -125,6 +126,7 @@ def serialize_character(
     energy_max = resources.energy_max if resources else 0
 
     serialized_attributes = serialize_attributes(attributes)
+    serialized_skills = serialize_character_skills(character)
     attribute_summary = ", ".join(
         f"{attribute['label']} {attribute['level']}"
         for attribute in serialized_attributes
@@ -154,7 +156,11 @@ def serialize_character(
         },
         "attributes": serialized_attributes,
         "attribute_summary": attribute_summary,
-        "skills": [],
+        "skills": serialized_skills,
+        "skill_summary": ", ".join(
+            f"{skill['name']} {skill['level']}"
+            for skill in serialized_skills[:12]
+        ) if serialized_skills else "None",
         "current_state": {
             "location": current_location.name if current_location else "Unknown",
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",

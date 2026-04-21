@@ -1,21 +1,26 @@
 from app import app
 from models import db, WorldTemplate, SkillDefinition, LLMModelConfig
+from services.skills.constants import CORE_SKILLS
 
 
 def seed():
     with app.app_context():
 
-        # === Skills (nur Basics) ===
-        skills = [
-            {"name": "Schwertkampf", "category": "Kampf", "linked_attribute": "strength"},
-            {"name": "Bogenschießen", "category": "Kampf", "linked_attribute": "dexterity"},
-            {"name": "Schlösser knacken", "category": "Utility", "linked_attribute": "dexterity"},
-            {"name": "Täuschen", "category": "Social", "linked_attribute": "charisma"},
-        ]
+        # === Skills (core defaults) ===
+        skills = CORE_SKILLS
 
         for s in skills:
             if not SkillDefinition.query.filter_by(name=s["name"]).first():
-                db.session.add(SkillDefinition(**s))
+                db.session.add(SkillDefinition(
+                    name=s["name"],
+                    category=s["category"],
+                    linked_attribute=s["linked_attribute"],
+                    description=s.get("description"),
+                    icon=s.get("icon"),
+                    short_code=s.get("short_code"),
+                    is_custom=False,
+                    is_active=True,
+                ))
 
         # === Welt (Platzhalter) ===
         if not WorldTemplate.query.filter_by(slug="testwelt").first():
