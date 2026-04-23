@@ -8,13 +8,11 @@
 
 <section class="card">
     {% if not community_users %}
-        <section class="card">
-            <p>No users found yet.</p>
-        </section>
+        <p>No users found yet.</p>
     {% else %}
         <div class="community-list">
             {% for user in community_users %}
-                <section class="card">
+                <section class="community-user-section">
                     <div class="section-header">
                         <h2>{{ user.username }}</h2>
                     </div>
@@ -24,10 +22,11 @@
                     {% else %}
                         <div class="character-list">
                             {% for character in user.characters %}
-                                <article class="card character-entry compact-entry">
-
+                                <article class="card character-entry compact-entry community-entry">
                                     <div class="character-entry-left">
-                                        <div class="character-portrait">👤</div>
+                                        <div class="character-entry-portrait-column">
+                                            <div class="character-portrait">👤</div>
+                                        </div>
 
                                         <div class="character-meta">
                                             <h2>{{ character.name }}</h2>
@@ -47,15 +46,9 @@
                                                     <div class="bar-fill xp-fill" style="width: {{ character.level_progression.progress_percent }}%"></div>
                                                 </div>
                                             </div>
-                                            <p><strong>Status:</strong> {{ character.status }}</p>
-                                            <div class="status-effect-row compact">
-                                                {% if character.status_effects %}
-                                                    {% for effect in character.status_effects %}
-                                                        <span class="status-effect-chip">{{ effect.name }} ({{ effect.duration_remaining }})</span>
-                                                    {% endfor %}
-                                                {% else %}
-                                                    <span class="muted-text">No status effects</span>
-                                                {% endif %}
+                                            <div class="compact-status-line">
+                                                <span><strong>Status:</strong> {{ character.status }}</span>
+                                                <span><strong>Effects:</strong> {{ character.status_effects|length }}</span>
                                             </div>
                                             <p><strong>💰 Currency:</strong>
                                                 {{ character.currency.gold }}g /
@@ -66,114 +59,80 @@
                                     </div>
 
                                     <div class="character-entry-middle compact-stats">
-                                        <h3 class="compact-panel-title">Stats</h3>
-
-                                        <div class="stat-block">
-                                            <div class="stat-row">
-                                                <span>❤️ HP</span>
-                                                <span>{{ character.hp }}/{{ character.max_hp }}</span>
+                                        <div class="character-entry-stat-column">
+                                            <div class="stat-block">
+                                                <div class="stat-row">
+                                                    <span>❤️ HP</span>
+                                                    <span>{{ character.hp }}/{{ character.max_hp }}</span>
+                                                </div>
+                                                <div class="bar">
+                                                    <div class="bar-fill hp-fill" style="width: {{ ((character.hp / character.max_hp) * 100) | int if character.max_hp > 0 else 0 }}%"></div>
+                                                </div>
                                             </div>
-                                            <div class="bar">
-                                                <div class="bar-fill hp-fill" style="width: {{ ((character.hp / character.max_hp) * 100) | int if character.max_hp > 0 else 0 }}%"></div>
+
+                                            <div class="stat-block">
+                                                <div class="stat-row">
+                                                    <span>🔮 Mana</span>
+                                                    <span>{{ character.mana }}/{{ character.max_mana }}</span>
+                                                </div>
+                                                <div class="bar">
+                                                    <div class="bar-fill mana-fill" style="width: {{ ((character.mana / character.max_mana) * 100) | int if character.max_mana > 0 else 0 }}%"></div>
+                                                </div>
+                                            </div>
+
+                                            <div class="stat-block">
+                                                <div class="stat-row">
+                                                    <span>⚡ Energy</span>
+                                                    <span>{{ character.energy }}/{{ character.max_energy }}</span>
+                                                </div>
+                                                <div class="bar">
+                                                    <div class="bar-fill energy-fill" style="width: {{ ((character.energy / character.max_energy) * 100) | int if character.max_energy > 0 else 0 }}%"></div>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div class="stat-block">
-                                            <div class="stat-row">
-                                                <span>🔮 Mana</span>
-                                                <span>{{ character.mana }}/{{ character.max_mana }}</span>
+                                        <div class="character-entry-progress-column">
+                                            <div class="compact-chip-section community-attributes-only">
+                                                <h4>Attributes</h4>
+                                                <div class="skill-chip-row">
+                                                    {% for attribute in character.attributes %}
+                                                        <span
+                                                            class="skill-chip attribute-chip"
+                                                            title="{{ attribute.label }} - Level {{ attribute.level }} - {{ attribute.progression.xp_into_level }} / {{ attribute.progression.xp_needed_this_level }} XP"
+                                                        >
+                                                            <span class="attribute-chip-main">{{ attribute.icon }} {{ attribute.level }}</span>
+                                                            <span class="attribute-mini-bar">
+                                                                <span class="attribute-mini-fill" style="width: {{ attribute.progression.progress_percent }}%"></span>
+                                                            </span>
+                                                        </span>
+                                                    {% endfor %}
+                                                </div>
                                             </div>
-                                            <div class="bar">
-                                                <div class="bar-fill mana-fill" style="width: {{ ((character.mana / character.max_mana) * 100) | int if character.max_mana > 0 else 0 }}%"></div>
-                                            </div>
-                                        </div>
 
-                                        <div class="stat-block">
-                                            <div class="stat-row">
-                                                <span>⚡ Energy</span>
-                                                <span>{{ character.energy }}/{{ character.max_energy }}</span>
-                                            </div>
-                                            <div class="bar">
-                                                <div class="bar-fill energy-fill" style="width: {{ ((character.energy / character.max_energy) * 100) | int if character.max_energy > 0 else 0 }}%"></div>
+                                            <div class="compact-chip-section community-inline-skills">
+                                                <h4>Skills</h4>
+                                                <div class="skill-chip-row">
+                                                    {% if character.skills %}
+                                                        {% for skill in character.skills %}
+                                                            <span
+                                                                class="skill-chip progress-chip"
+                                                                title="{{ skill.name }} - Level {{ skill.level }} - {{ skill.progression.xp_into_level }} / {{ skill.progression.xp_needed_this_level }} XP{% if skill.is_custom %} - Custom{% endif %}"
+                                                            >
+                                                                <span class="progress-chip-main">{{ skill.icon }} {{ skill.level }}</span>
+                                                                <span class="attribute-mini-bar">
+                                                                    <span class="skill-mini-fill" style="width: {{ skill.progression.progress_percent }}%"></span>
+                                                                </span>
+                                                            </span>
+                                                        {% endfor %}
+                                                    {% else %}
+                                                        <span class="muted-text">No learned skills</span>
+                                                    {% endif %}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div class="character-entry-right state-info">
-                                        <h3>Adventure State</h3>
-                                        <p><strong>📍 Location:</strong> {{ character.location }}</p>
-                                        <p><strong>🕒 Time:</strong> {{ character.time }}</p>
-                                        <p><strong>📜 Quest:</strong> {{ character.quest }}</p>
-
-                                        <hr class="divider">
-
-                                        <h4>Equipment</h4>
-                                        <div class="equipment-slot-grid compact">
-                                            {% for slot in character.equipment_slots %}
-                                                <div class="equipment-slot {% if slot.is_empty %}empty{% endif %}">
-                                                    <span class="equipment-slot-label">{{ slot.label }}</span>
-                                                    <strong>{{ slot.item if slot.item else "Empty" }}</strong>
-                                                </div>
-                                            {% endfor %}
-                                        </div>
-
-                                        <h4>Inventory</h4>
-
-                                        {% if character.inventory_containers %}
-                                            {% for container in character.inventory_containers %}
-                                                <div class="inventory-container">
-
-                                                    <div class="inventory-container-header">
-                                                        <strong>{{ container.name }}</strong>
-                                                        <span class="muted-text">({{ container.container_id }})</span>
-                                                    </div>
-
-                                                    <div class="inventory-container-stats">
-                                                        <span>Size: {{ container.max_item_size }}</span>
-                                                        <span>Volume: {{ container.used_volume }} / {{ container.max_volume }}</span>
-                                                        <span>Weight: {{ container.total_weight }}</span>
-                                                    </div>
-
-                                                    {% if container["items"] %}
-                                                        <ul class="inventory-item-list">
-                                                            {% for item in container["items"] %}
-                                                                <li class="inventory-item">
-                                                                    <strong>{{ item.display_name }}</strong>
-                                                                    <div class="inventory-item-details">
-                                                                        <span>Size: {{ item.size }}</span>
-                                                                        <span>Vol: {{ item.total_volume }}</span>
-                                                                        <span>Weight: {{ item.total_weight }}</span>
-                                                                    </div>
-                                                                </li>
-                                                            {% endfor %}
-                                                        </ul>
-                                                    {% else %}
-                                                        <p class="muted-text">Empty</p>
-                                                    {% endif %}
-
-                                                </div>
-                                            {% endfor %}
-                                        {% else %}
-                                            <p class="muted-text">No inventory</p>
-                                        {% endif %}
-
-                                        <hr class="divider">
-
-                                        <h4>Attributes</h4>
-                                        <div class="skill-chip-row">
-                                            {% for attribute in character.attributes %}
-                                                <span
-                                                    class="skill-chip attribute-chip"
-                                                    title="{{ attribute.label }} - Level {{ attribute.level }} - {{ attribute.progression.xp_into_level }} / {{ attribute.progression.xp_needed_this_level }} XP"
-                                                >
-                                                    <span class="attribute-chip-main">{{ attribute.icon }} {{ attribute.level }}</span>
-                                                    <span class="attribute-mini-bar">
-                                                        <span class="attribute-mini-fill" style="width: {{ attribute.progression.progress_percent }}%"></span>
-                                                    </span>
-                                                </span>
-                                            {% endfor %}
-                                        </div>
-
+                                    <div class="character-entry-right community-skill-info">
                                         <h4>Skills</h4>
                                         <div class="skill-chip-row">
                                             {% if character.skills %}
@@ -193,7 +152,6 @@
                                             {% endif %}
                                         </div>
                                     </div>
-
                                 </article>
                             {% endfor %}
                         </div>
