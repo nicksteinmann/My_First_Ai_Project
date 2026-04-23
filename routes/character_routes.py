@@ -223,8 +223,7 @@ def register_character_routes(
                 name="The Screeching Rat - Rented Room",
                 location_type="inn_room",
                 description=(
-                    "A tiny, cheap rented room with a straw bed, a chair, and your packed backpack "
-                    "waiting beside the bed."
+                    "A tiny, cheap rented room with a straw bed, a chair, and your few belongings."
                 ),
                 is_discovered=True,
                 is_custom=False
@@ -238,7 +237,7 @@ def register_character_routes(
             start_quest = CampaignQuest(
                 campaign_id=new_campaign.id,
                 title="Get Ready for the Day",
-                description="Pick up your backpack and prepare to leave your rented room.",
+                description="Check your gear and prepare to leave your rented room.",
                 status="active",
                 reward_gold=0,
                 reward_xp=0
@@ -251,8 +250,8 @@ def register_character_routes(
                 current_scene_summary=(
                     "You wake up in a cheap rented room at the tavern called "
                     "'The Screeching Rat' after arriving late in the capital. "
-                    "You are dressed in simple travel clothes with a belt pouch and a wooden club. "
-                    "Your backpack rests nearby with your few supplies packed inside."
+                    "You are dressed in simple travel clothes with two belt pouches, a backpack, "
+                    "and a wooden club in hand."
                 ),
                 world_state_summary=(
                     "The capital is a magically protected neutral city where open violence is impossible."
@@ -265,17 +264,22 @@ def register_character_routes(
             db.session.add(start_state)
             db.session.commit()
 
-            starter_shirt = {
-                "item_id": "starter_simple_shirt",
-                "name": "Simple Shirt",
-                "description": "A plain shirt without pockets.",
+            starter_jacket = {
+                "item_id": "starter_simple_jacket",
+                "name": "Simple Jacket",
+                "description": "A plain travel jacket with one small pocket.",
                 "size": "small",
-                "volume": 1.0,
-                "weight": 0.5,
+                "volume": 1.5,
+                "weight": 0.8,
                 "stackable": False,
                 "quantity": 1,
                 "hand_usage": "none",
                 "item_type": "clothing",
+                "container_profile": {
+                    "name": "Jacket",
+                    "max_volume": 2.0,
+                    "max_item_size": "small",
+                },
                 "equipped_slots": ["torso_clothing"],
             }
             starter_trousers = {
@@ -290,7 +294,7 @@ def register_character_routes(
                 "hand_usage": "none",
                 "item_type": "pants",
                 "container_profile": {
-                    "name": "Trouser Pockets",
+                    "name": "Trousers",
                     "max_volume": 1.0,
                     "max_item_size": "small",
                 },
@@ -334,11 +338,29 @@ def register_character_routes(
                 "hand_usage": "none",
                 "item_type": "pouch",
                 "container_profile": {
-                    "name": "Small Belt Pouch",
+                    "name": "Belt 1",
                     "max_volume": 5.0,
                     "max_item_size": "small",
                 },
                 "equipped_slots": ["belt_slot_1"],
+            }
+            starter_second_belt_pouch = {
+                "item_id": "starter_second_belt_pouch",
+                "name": "Small Belt Pouch",
+                "description": "A second small pouch tied to your belt.",
+                "size": "small",
+                "volume": 0.5,
+                "weight": 0.3,
+                "stackable": False,
+                "quantity": 1,
+                "hand_usage": "none",
+                "item_type": "pouch",
+                "container_profile": {
+                    "name": "Belt 2",
+                    "max_volume": 5.0,
+                    "max_item_size": "small",
+                },
+                "equipped_slots": ["belt_slot_2"],
             }
             starter_club = {
                 "item_id": "starter_wooden_club",
@@ -351,12 +373,12 @@ def register_character_routes(
                 "quantity": 1,
                 "hand_usage": "one_handed",
                 "item_type": "weapon",
-                "equipped_slots": ["belt_slot_2"],
+                "equipped_slots": ["main_hand"],
             }
             starter_backpack = {
                 "item_id": "starter_travel_backpack",
-                "name": "Travel Backpack",
-                "description": "A worn backpack lying beside the bed with a few supplies packed inside.",
+                "name": "Backpack",
+                "description": "A worn backpack with a few supplies packed inside.",
                 "size": "medium",
                 "volume": 3.0,
                 "weight": 1.5,
@@ -365,10 +387,11 @@ def register_character_routes(
                 "hand_usage": "none",
                 "item_type": "backpack",
                 "container_profile": {
-                    "name": "Travel Backpack",
+                    "name": "Backpack",
                     "max_volume": 10.0,
                     "max_item_size": "medium",
                 },
+                "equipped_slots": ["backpack"],
                 "stored_items": [
                     {
                         "item_id": "starter_torch",
@@ -422,8 +445,17 @@ def register_character_routes(
                             "items": [],
                         },
                         {
+                            "container_id": "equipment_starter_simple_jacket",
+                            "name": "Jacket",
+                            "source": "equipment",
+                            "source_item_id": "starter_simple_jacket",
+                            "max_volume": 2.0,
+                            "max_item_size": "small",
+                            "items": [],
+                        },
+                        {
                             "container_id": "equipment_starter_travel_trousers",
-                            "name": "Trouser Pockets",
+                            "name": "Trousers",
                             "source": "equipment",
                             "source_item_id": "starter_travel_trousers",
                             "max_volume": 1.0,
@@ -432,7 +464,7 @@ def register_character_routes(
                         },
                         {
                             "container_id": "equipment_starter_belt_pouch",
-                            "name": "Small Belt Pouch",
+                            "name": "Belt 1",
                             "source": "equipment",
                             "source_item_id": "starter_belt_pouch",
                             "max_volume": 5.0,
@@ -440,20 +472,29 @@ def register_character_routes(
                             "items": [],
                         },
                         {
-                            "container_id": "nearby_room_gear",
-                            "name": "Nearby Room Gear",
-                            "source": "nearby",
-                            "source_item_id": None,
-                            "max_volume": 20.0,
-                            "max_item_size": "large",
-                            "items": [starter_backpack],
+                            "container_id": "equipment_starter_second_belt_pouch",
+                            "name": "Belt 2",
+                            "source": "equipment",
+                            "source_item_id": "starter_second_belt_pouch",
+                            "max_volume": 5.0,
+                            "max_item_size": "small",
+                            "items": [],
+                        },
+                        {
+                            "container_id": "equipment_starter_travel_backpack",
+                            "name": "Backpack",
+                            "source": "equipment",
+                            "source_item_id": "starter_travel_backpack",
+                            "max_volume": 10.0,
+                            "max_item_size": "medium",
+                            "items": starter_backpack["stored_items"],
                         },
                     ]
                 },
                 "equipment": {
                     "slots": {
                         "head": None,
-                        "torso_clothing": starter_shirt,
+                        "torso_clothing": starter_jacket,
                         "torso_armor": None,
                         "legs_clothing": starter_trousers,
                         "legs_armor": None,
@@ -461,12 +502,12 @@ def register_character_routes(
                         "gloves": None,
                         "belt": starter_belt,
                         "belt_slot_1": starter_belt_pouch,
-                        "belt_slot_2": starter_club,
-                        "backpack": None,
+                        "belt_slot_2": starter_second_belt_pouch,
+                        "backpack": starter_backpack,
                         "cloak": None,
                         "ring_left": None,
                         "ring_right": None,
-                        "main_hand": None,
+                        "main_hand": starter_club,
                         "off_hand": None,
                     }
                 },

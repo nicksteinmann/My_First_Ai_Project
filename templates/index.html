@@ -59,7 +59,26 @@
                             <div id="character-xp-fill" class="bar-fill xp-fill" style="width: {{ active_character.level_progression.progress_percent }}%"></div>
                         </div>
                     </div>
-                    <p id="character-status"><strong>Status:</strong> {{ active_character.status }}</p>
+                    <div class="status-effects-line">
+                        <p id="character-status"><strong>Status:</strong> {{ active_character.status }}</p>
+                        <div class="effects-inline">
+                            <strong>Effects:</strong>
+                            <div id="status-effect-root" class="status-effect-row inline">
+                                {% if active_character.status_effects %}
+                                    {% for effect in active_character.status_effects %}
+                                        <span
+                                            class="status-effect-chip"
+                                            title="{{ effect.name }}{% if effect.description %} - {{ effect.description }}{% endif %}"
+                                        >
+                                            {{ effect.icon }} {{ effect.duration_remaining }}
+                                        </span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="muted-text">None</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                     <p id="state-currency"><strong>💰 Currency:</strong>
                         {{ active_character.currency.gold }}g /
                         {{ active_character.currency.silver }}s /
@@ -68,8 +87,9 @@
                 </div>
             </div>
 
-            <div class="home-stat-grid">
-                <div class="stat-block">
+            <div class="character-core-grid">
+                <div class="home-stat-grid">
+                    <div class="stat-block">
                     <div class="stat-row">
                         <span>❤️ HP</span>
                         <span id="stat-hp-text">{{ active_character.stats.hp }} / {{ active_character.stats.hp_max }}</span>
@@ -79,7 +99,7 @@
                     </div>
                 </div>
 
-                <div class="stat-block">
+                    <div class="stat-block">
                     <div class="stat-row">
                         <span>🔮 Mana</span>
                         <span id="stat-mana-text">{{ active_character.stats.mana }} / {{ active_character.stats.mana_max }}</span>
@@ -89,7 +109,7 @@
                     </div>
                 </div>
 
-                <div class="stat-block">
+                    <div class="stat-block">
                     <div class="stat-row">
                         <span>⚡ Energy</span>
                         <span id="stat-energy-text">{{ active_character.stats.energy }} / {{ active_character.stats.energy_max }}</span>
@@ -98,24 +118,11 @@
                         <div id="stat-energy-fill" class="bar-fill energy-fill" style="width: {{ (active_character.stats.energy / active_character.stats.energy_max * 100) | int if active_character.stats.energy_max > 0 else 0 }}%"></div>
                     </div>
                 </div>
-            </div>
-
-            <div class="home-character-bottom">
-                <h3>Status Effects</h3>
-                <div id="status-effect-root" class="status-effect-row">
-                    {% if active_character.status_effects %}
-                        {% for effect in active_character.status_effects %}
-                            <span class="status-effect-chip">{{ effect.name }} ({{ effect.duration_remaining }})</span>
-                        {% endfor %}
-                    {% else %}
-                        <span class="muted-text">None</span>
-                    {% endif %}
                 </div>
-            </div>
 
-            <div class="home-character-bottom">
+                <div class="home-character-bottom attributes-panel">
                 <h3>Attributes</h3>
-                <div id="attribute-chip-root" class="skill-chip-row">
+                <div id="attribute-chip-root" class="attribute-chip-grid">
                     {% for attribute in active_character.attributes %}
                         <span
                             class="skill-chip attribute-chip"
@@ -128,6 +135,8 @@
                         </span>
                     {% endfor %}
                 </div>
+            </div>
+
             </div>
 
             <div class="home-character-bottom">
@@ -181,7 +190,6 @@
 
                 <div class="button-row top-spacing">
                     <button id="sendBtn" class="btn" type="button" onclick="sendMessage()">Send</button>
-                    <button class="btn btn-secondary" type="button">Save Adventure</button>
                 </div>
             </section>
 
@@ -189,21 +197,42 @@
                 <h2>Adventure State</h2>
                 <p id="state-location"><strong>📍 Location:</strong> {{ active_character.current_state.location }}</p>
                 <p id="state-time"><strong>🕒 Time:</strong> {{ active_character.current_state.time_of_day }}</p>
-                <p id="state-quest"><strong>📜 Quest:</strong> {{ active_character.current_state.active_quest }}</p>
+                <div id="state-quest" class="quest-panel">
+                    <h2>📜 Quest</h2>
+                    <div
+                        class="quest-list"
+                        title="{{ active_character.current_state.active_quest_description if active_character.current_state.active_quest_description else active_character.current_state.active_quest }}"
+                    >
+                        <strong>{{ active_character.current_state.active_quest }}</strong>
+                    </div>
+                </div>
 
                 <hr class="divider">
 
-                <h3>Equipment</h3>
-                <div id="equipment-slot-root" class="equipment-slot-grid">
+                <div class="equipment-title-row">
+                    <h3>Equipment</h3>
+                    <span
+                        id="carry-load"
+                        class="carry-load {% if active_character.carry_load.is_over_capacity %}overloaded{% endif %}"
+                        title="Carried weight / comfortable carry capacity"
+                    >
+                        ⚖ {{ active_character.carry_load.current_display }} / {{ active_character.carry_load.capacity_display }}
+                    </span>
+                </div>
+                <div id="equipment-slot-root" class="equipment-slot-grid {% if not active_character.equipment_by_slot.belt.item %}no-belt{% endif %}">
                     {% for slot in active_character.equipment_slots %}
-                        <div class="equipment-slot {% if slot.is_empty %}empty{% endif %}">
+                        <div
+                            class="equipment-slot {% if slot.is_empty %}empty{% endif %}"
+                            data-slot="{{ slot.slot }}"
+                            title="{{ slot.title }}"
+                        >
                             <span class="equipment-slot-label">{{ slot.label }}</span>
                             <strong>{{ slot.item if slot.item else "Empty" }}</strong>
                         </div>
                     {% endfor %}
                 </div>
 
-                <h3>Inventory</h3>
+                <h3 class="inventory-title">Inventory</h3>
 
                 <div id="inventory-container-root">
                     {% if active_character.inventory_containers %}
@@ -212,24 +241,23 @@
 
                                 <div class="inventory-container-header">
                                     <strong>{{ container.name }}</strong>
-                                    <span class="muted-text">({{ container.container_id }})</span>
-                                </div>
-
-                                <div class="inventory-container-stats">
-                                    <span>Size: {{ container.max_item_size }}</span>
-                                    <span>Volume: {{ container.used_volume }} / {{ container.max_volume }}</span>
-                                    <span>Weight: {{ container.total_weight }}</span>
+                                    <span
+                                        class="inventory-metric-pill"
+                                        title="Size: {{ container.max_item_size_display }} | Volume: {{ container.used_volume_display }} / {{ container.max_volume_display }} | Weight: {{ container.total_weight_display }}"
+                                    >
+                                        {{ container.max_item_size_abbreviation }} · V {{ container.used_volume_display }}/{{ container.max_volume_display }} · W {{ container.total_weight_display }}
+                                    </span>
                                 </div>
 
                                 {% if container["items"] %}
                                     <ul class="inventory-item-list">
                                         {% for item in container["items"] %}
-                                            <li class="inventory-item">
-                                                <strong>{{ item.display_name }}</strong>
-                                                <div class="inventory-item-details">
-                                                    <span>Size: {{ item.size }}</span>
-                                                    <span>Vol: {{ item.total_volume }}</span>
-                                                    <span>Weight: {{ item.total_weight }}</span>
+                                            <li
+                                                class="inventory-item"
+                                                title="{{ item.description }}{% if item.description %} | {% endif %}Size: {{ item.size_display }} | Volume: {{ item.total_volume_display }} | Weight: {{ item.total_weight_display }}"
+                                            >
+                                                <div class="inventory-item-main">
+                                                    <strong>{{ item.display_name }}</strong>
                                                 </div>
                                             </li>
                                         {% endfor %}
@@ -259,6 +287,30 @@
 
 <script>
     let isSending = false;
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function fitEquipmentLabels() {
+        document.querySelectorAll(".equipment-slot strong").forEach(label => {
+            label.style.fontSize = "";
+            label.style.textOverflow = "clip";
+
+            let fontSize = 0.88;
+            while (label.scrollWidth > label.clientWidth && fontSize > 0.62) {
+                fontSize -= 0.03;
+                label.style.fontSize = `${fontSize.toFixed(2)}rem`;
+            }
+
+            label.style.textOverflow = label.scrollWidth > label.clientWidth ? "ellipsis" : "clip";
+        });
+    }
 
     async function loadProviders() {
         const select = document.getElementById("providerSelect");
@@ -306,6 +358,7 @@
         const levelEl = document.getElementById("character-level");
         const xpTextEl = document.getElementById("character-xp-text");
         const xpFillEl = document.getElementById("character-xp-fill");
+        const carryLoadEl = document.getElementById("carry-load");
 
         if (locationEl) {
             locationEl.innerHTML = `<strong>📍 Location:</strong> ${character.current_state.location}`;
@@ -316,7 +369,13 @@
         }
 
         if (questEl) {
-            questEl.innerHTML = `<strong>📜 Quest:</strong> ${character.current_state.active_quest}`;
+            const questDescription = character.current_state.active_quest_description || character.current_state.active_quest;
+            questEl.innerHTML = `
+                <h2>📜 Quest</h2>
+                <div class="quest-list" title="${questDescription}">
+                    <strong>${character.current_state.active_quest}</strong>
+                </div>
+            `;
         }
 
         if (currencyEl && character.currency) {
@@ -352,22 +411,32 @@
         updateAttributes(character.attributes || []);
         updateSkills(character.skills || []);
 
+        if (carryLoadEl && character.carry_load) {
+            carryLoadEl.textContent = `⚖ ${character.carry_load.current_display} / ${character.carry_load.capacity_display}`;
+            carryLoadEl.classList.toggle("overloaded", Boolean(character.carry_load.is_over_capacity));
+        }
+
         const inventoryRoot = document.getElementById("inventory-container-root");
         const equipmentRoot = document.getElementById("equipment-slot-root");
 
         if (equipmentRoot && character.equipment_slots) {
             let equipmentHtml = "";
+            const beltSlot = character.equipment_by_slot?.belt;
+            const hasBelt = Boolean(beltSlot && !beltSlot.is_empty && beltSlot.item);
+
+            equipmentRoot.classList.toggle("no-belt", !hasBelt);
 
             character.equipment_slots.forEach(slot => {
                 equipmentHtml += `
-                    <div class="equipment-slot ${slot.is_empty ? "empty" : ""}">
-                        <span class="equipment-slot-label">${slot.label}</span>
-                        <strong>${slot.item || "Empty"}</strong>
+                    <div class="equipment-slot ${slot.is_empty ? "empty" : ""}" data-slot="${escapeHtml(slot.slot)}" title="${escapeHtml(slot.title || "")}">
+                        <span class="equipment-slot-label">${escapeHtml(slot.label)}</span>
+                        <strong>${escapeHtml(slot.item || "Empty")}</strong>
                     </div>
                 `;
             });
 
             equipmentRoot.innerHTML = equipmentHtml;
+            fitEquipmentLabels();
         }
 
         if (inventoryRoot && character.inventory_containers) {
@@ -378,13 +447,12 @@
                     <div class="inventory-container">
                         <div class="inventory-container-header">
                             <strong>${container.name}</strong>
-                            <span class="muted-text">(${container.container_id})</span>
-                        </div>
-
-                        <div class="inventory-container-stats">
-                            <span>Size: ${container.max_item_size}</span>
-                            <span>Volume: ${container.used_volume} / ${container.max_volume}</span>
-                            <span>Weight: ${container.total_weight}</span>
+                            <span
+                                class="inventory-metric-pill"
+                                title="Size: ${container.max_item_size_display} | Volume: ${container.used_volume_display} / ${container.max_volume_display} | Weight: ${container.total_weight_display}"
+                            >
+                                ${container.max_item_size_abbreviation} · V ${container.used_volume_display}/${container.max_volume_display} · W ${container.total_weight_display}
+                            </span>
                         </div>
                 `;
 
@@ -392,13 +460,14 @@
                     html += `<ul class="inventory-item-list">`;
 
                     container.items.forEach(item => {
+                        const itemDescription = item.description ? `${item.description} | ` : "";
                         html += `
-                            <li class="inventory-item">
-                                <strong>${item.display_name}</strong>
-                                <div class="inventory-item-details">
-                                    <span>Size: ${item.size}</span>
-                                    <span>Vol: ${item.total_volume}</span>
-                                    <span>Weight: ${item.total_weight}</span>
+                            <li
+                                class="inventory-item"
+                                title="${escapeHtml(itemDescription)}Size: ${escapeHtml(item.size_display)} | Volume: ${escapeHtml(item.total_volume_display)} | Weight: ${escapeHtml(item.total_weight_display)}"
+                            >
+                                <div class="inventory-item-main">
+                                    <strong>${escapeHtml(item.display_name)}</strong>
                                 </div>
                             </li>
                         `;
@@ -432,6 +501,42 @@
         }
     }
 
+    function getStatusEffectIcon(effect) {
+        const name = (effect.name || "").toLowerCase();
+        const type = (effect.effect_type || "").toLowerCase();
+        const nameIcons = [
+            ["poison", "☠️"],
+            ["bleed", "🩸"],
+            ["stun", "💫"],
+            ["bless", "✨"],
+            ["burn", "🔥"],
+            ["froz", "🧊"],
+            ["chill", "🧊"],
+            ["sleep", "💤"],
+            ["fear", "😨"],
+            ["fright", "😨"],
+            ["curse", "🔮"],
+            ["exhaust", "🥱"],
+            ["fatigue", "🥱"],
+            ["overload", "🎒"],
+            ["encumber", "🎒"],
+            ["hidden", "🌫️"],
+            ["invisible", "🌫️"],
+            ["regen", "💚"],
+            ["heal", "💚"],
+            ["shield", "🛡️"],
+            ["protect", "🛡️"],
+        ];
+
+        const match = nameIcons.find(([keyword]) => name.includes(keyword));
+        if (match) return match[1];
+
+        if (type === "buff" || type === "blessing") return "✨";
+        if (type === "poison") return "☠️";
+        if (type === "injury") return "🩸";
+        return "⚠️";
+    }
+
     function updateStatusEffects(statusEffects) {
         const root = document.getElementById("status-effect-root");
         if (!root) return;
@@ -443,7 +548,9 @@
 
         let html = "";
         statusEffects.forEach(effect => {
-            html += `<span class="status-effect-chip">${effect.name} (${effect.duration_remaining})</span>`;
+            const icon = effect.icon || getStatusEffectIcon(effect);
+            const description = effect.description ? ` - ${effect.description}` : "";
+            html += `<span class="status-effect-chip" title="${effect.name}${description}">${icon} ${effect.duration_remaining}</span>`;
         });
         root.innerHTML = html;
     }
@@ -578,6 +685,7 @@
     }
 
     loadProviders();
+    fitEquipmentLabels();
 
     const chatBox = document.getElementById("chat");
     if (chatBox) {
