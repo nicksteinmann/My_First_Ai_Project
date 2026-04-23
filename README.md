@@ -15,9 +15,58 @@ The AI may describe and decide, but persistent game state is changed only throug
 
 ## Overview
 
-AI Pen & Paper is a long-term architecture and learning project for a reusable AI-driven RPG engine.
+AI Pen & Paper is a long-term architecture and learning project for a reusable AI-driven tool and rule engine, currently demonstrated through a fantasy RPG.
 
-The current implementation is a fantasy text RPG, but the system is intentionally modular so it can later support other genres such as survival, sci-fi, or horror.
+The current implementation is a fantasy text RPG, but the system is intentionally modular so it can later support other genres such as survival, sci-fi, horror, other rule-based simulations, or non-game AI applications.
+
+The important idea is that this project is not only a game prototype. It is an experiment in building an AI application where an LLM can interact with a persistent backend through validated tools instead of freely inventing or changing state.
+
+In this architecture, the backend acts as the durable memory and rule authority for the AI:
+
+- the database stores what is true
+- backend services define what is allowed
+- tools expose safe actions to the LLM
+- the LLM uses those tools to inspect and modify the world
+- the final answer is narrative, but the state changes are deterministic
+
+This makes the project closer to a reusable AI engine than a single scripted game.
+
+---
+
+## Engine Concept
+
+The project explores a pattern that is useful beyond games:
+
+> Give an AI access to structured data, rules, and validated actions, then let it explain, narrate, and generate new content within those boundaries.
+
+The RPG implementation is the most expressive demonstration layer because it allows natural language, player freedom, procedural generation, and persistent consequences to interact at the same time.
+
+For the RPG prototype, that means the AI can narrate a fantasy adventure while the backend controls characters, resources, equipment, inventory, skills, attributes, quests, and persistent campaign state.
+
+The same underlying approach can also be adapted to domains where the AI needs much stricter boundaries and far less creativity, but still has to work against trusted application data and business rules.
+
+Examples:
+
+- an internal assistant that queries company data through controlled tools
+- a training simulation where user choices change persistent state
+- a rules-based support assistant that can perform validated actions
+- a procedural content engine that generates new objects from fixed schemas
+- a survival, sci-fi, horror, or sandbox RPG using the same backend principles
+
+The game layer is therefore not the only goal of the project. It is also a way to demonstrate and stress-test the underlying engine in a setting that is harder than many business applications: the AI has more freedom, the user has more freedom, and the system still has to preserve consistency.
+
+That means the RPG acts both as:
+
+- a product prototype
+- a technical demonstration of the underlying engine
+- a pressure test for persistent AI-state interaction
+- an extension that proves the engine can support creative generation, not only strict retrieval and validation
+
+The current system is RAG-inspired, but it is not a classic vector-search RAG system yet. Instead of retrieving documents from embeddings, the backend injects structured state and provides tool calls that let the AI ask for, update, validate, and generate state through application services.
+
+Future versions could add vector search, local document retrieval, or company-internal knowledge bases on top of the same tool-based architecture.
+
+The tool-calling layer also makes the system adaptable to local or private LLMs. In a company setting, the same principle could be used with an internal model so sensitive data stays inside the organization while the AI still interacts with backend systems through validated tools.
 
 ---
 
@@ -458,6 +507,7 @@ Current displays:
 
 Working:
 
+- AI RPG engine prototype with a fantasy game as the current demonstration layer
 - Modular Flask architecture
 - Persistent users and characters
 - Persistent campaigns
@@ -474,9 +524,11 @@ Working:
 - Skill progression and skill XP tools
 - Multi-system tool pipeline
 - UI state refresh after game turns
+- Rule-grounded item and state interaction through backend tools
 
 Known limitations:
 
+- No vector-based RAG or external knowledge retrieval yet
 - No stat modifiers from equipment yet
 - No advanced custom skill deduplication beyond normalized names yet
 - No level-up choice or skill point spending yet
@@ -514,6 +566,8 @@ Long-term:
 
 - Reusable AI RPG framework
 - Genre templates
+- RAG or retrieval layer for structured world and knowledge data
+- Local/private LLM compatibility for sensitive data use cases
 - Better AI consistency
 - World simulation and events
 
@@ -608,13 +662,19 @@ Existing commit style:
 This project explores:
 
 - AI and backend architecture
+- LLM tool calling as a controlled interface to application state
+- RAG-inspired grounding through structured backend data
 - Persistent game state
 - LLM integration in real applications
 - Modular system design
 - Tool-based state control
 - Scalable AI game systems
+- Rule-based procedural content generation
+- Building an AI system that can create narrative freedom without owning the source of truth
 
-It serves as both a learning project and a technical showcase.
+It serves as both a school and learning project and a technical showcase.
+
+The goal is to demonstrate more than a playable text adventure. The project shows how an AI can be connected to a backend in a way that keeps data, rules, and state changes deterministic while still allowing flexible natural-language interaction and creative generation.
 
 ---
 
