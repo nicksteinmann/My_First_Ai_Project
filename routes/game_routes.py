@@ -103,7 +103,11 @@ def register_game_routes(
                     "The following story history is context only. "
                     "Do not execute tools for events, rewards, payments, damage, healing, "
                     "inventory changes, equipment changes, status effects, location changes or quest changes "
-                    "that already appear in this history. Only call tools for new changes caused by the latest user message."
+                    "that already appear in this history unless the latest user message clearly repeats, continues, "
+                    "or intentionally redoes a similar action in the present turn. "
+                    "If the user says things like 'again', 'continue', 'weiter', 'nochmal', or repeats a training, travel, "
+                    "rest, trade, or combat action, treat that as a new action and call tools again for the new turn only. "
+                    "Only avoid re-applying the exact same past event just because it appears in history."
                 )
             })
 
@@ -113,7 +117,7 @@ def register_game_routes(
             elif msg.sender_type in ("assistant", "ai", "gm"):
                 messages.append({
                     "role": "assistant",
-                    "content": f"[PAST NARRATION - ALREADY RESOLVED]\n{msg.content}"
+                    "content": msg.content
                 })
 
         messages.append({"role": "user", "content": user_input})
