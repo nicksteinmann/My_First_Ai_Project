@@ -8,6 +8,59 @@ from openai import OpenAI
 
 load_dotenv()
 
+OPENAI_COMPLETION_TOKEN_MODEL_PREFIXES = (
+    "gpt-5",
+    "o1",
+    "o3",
+    "o4",
+)
+
+
+def _uses_completion_token_limit(provider: str, model: str) -> bool:
+    """Return whether a model expects max_completion_tokens instead of max_tokens."""
+
+    if provider.lower().strip() != "openai":
+        return False
+
+    normalized_model = (model or "").lower().strip()
+    return normalized_model.startswith(OPENAI_COMPLETION_TOKEN_MODEL_PREFIXES)
+
+
+def _supports_custom_temperature(provider: str, model: str) -> bool:
+    """Return whether we should send a custom temperature value."""
+
+    return not _uses_completion_token_limit(provider, model)
+
+
+def _build_chat_completion_kwargs(
+    provider: str,
+    model: str,
+    messages,
+    max_output_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    **extra_kwargs,
+) -> Dict[str, Any]:
+    """Build provider-compatible Chat Completions kwargs."""
+
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        **extra_kwargs,
+    }
+
+    if max_output_tokens is not None:
+        token_limit_key = (
+            "max_completion_tokens"
+            if _uses_completion_token_limit(provider, model)
+            else "max_tokens"
+        )
+        kwargs[token_limit_key] = max_output_tokens
+
+    if temperature is not None and _supports_custom_temperature(provider, model):
+        kwargs["temperature"] = temperature
+
+    return kwargs
+
 
 def get_provider_config(provider: str) -> Dict[str, Any]:
     """Return API key, base URL, and model name for a provider."""
@@ -63,13 +116,16 @@ def check_provider_availability(provider: str) -> Dict[str, Any]:
         client = build_client(provider)
 
         response = client.chat.completions.create(
-            model=cfg["model"],
-            messages=[
-                {"role": "system", "content": "Antwort nur mit 'ok'."},
-                {"role": "user", "content": "Test"}
-            ],
-            max_tokens=5,
-            temperature=0
+            **_build_chat_completion_kwargs(
+                provider=provider,
+                model=cfg["model"],
+                messages=[
+                    {"role": "system", "content": "Antwort nur mit 'ok'."},
+                    {"role": "user", "content": "Test"},
+                ],
+                max_output_tokens=32,
+                temperature=0,
+            )
         )
 
         content = response.choices[0].message.content or ""
@@ -100,13 +156,16 @@ def ask_llm(prompt: str, provider: str = "deepseek", system_prompt: Optional[str
         system_prompt = "Du bist ein Spielleiter für ein Fantasy-Textabenteuer."
 
     response = client.chat.completions.create(
-        model=cfg["model"],
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.7,
-        max_tokens=500,
+        **_build_chat_completion_kwargs(
+            provider=provider,
+            model=cfg["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+            max_output_tokens=500,
+        )
     )
 
     return response.choices[0].message.content or ""
