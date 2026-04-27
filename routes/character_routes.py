@@ -17,7 +17,11 @@ from models import (
 )
 
 from services.attributes import serialize_attributes
-from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
+from services.serializers.character_serializer import (
+    get_character_inventory_data,
+    get_character_status_effects,
+    get_visible_campaign_quest_summary,
+)
 from services.currency.service import add_currency
 from services.leveling import serialize_level_progression
 from services.skills import serialize_character_skills
@@ -30,7 +34,6 @@ def register_character_routes(
     get_character_by_id_for_user,
     get_active_campaign_for_character,
     get_current_campaign_location,
-    get_active_campaign_quest,
     get_or_create_default_world_template,
 ):
     """Register character management routes on the Flask app."""
@@ -50,7 +53,6 @@ def register_character_routes(
             attributes = character.attributes
             campaign = get_active_campaign_for_character(character.id)
             current_location = get_current_campaign_location(campaign)
-            active_quest = get_active_campaign_quest(campaign)
             inventory_data = get_character_inventory_data(character.id)
             status_effects = get_character_status_effects(character.id)
             level_progression = serialize_level_progression(character)
@@ -86,7 +88,7 @@ def register_character_routes(
                 "max_energy": resources.energy_max if resources else 0,
                 "location": current_location.name if current_location else "Unknown",
                 "time": campaign.current_ingame_time if campaign else "Unknown",
-                "quest": active_quest.title if active_quest else "No active quest",
+                "quest": get_visible_campaign_quest_summary(campaign),
                 "completed_quests": completed_quests_count,
                 "campaigns": campaigns_count,
                 "equipment": inventory_data["equipment"],
@@ -233,16 +235,6 @@ def register_character_routes(
 
             if hasattr(new_campaign, "current_location_id"):
                 new_campaign.current_location_id = start_location.id
-
-            start_quest = CampaignQuest(
-                campaign_id=new_campaign.id,
-                title="Get Ready for the Day",
-                description="Check your gear and prepare to leave your rented room.",
-                status="active",
-                reward_gold=0,
-                reward_xp=0
-            )
-            db.session.add(start_quest)
 
             start_state = CampaignState(
                 campaign_id=new_campaign.id,

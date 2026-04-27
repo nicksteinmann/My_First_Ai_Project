@@ -83,7 +83,7 @@ def register_game_routes(
         recent_story_messages = get_recent_story_messages(campaign.id, limit=12)
         turn_id = uuid4().hex
 
-        system_prompt = build_game_system_prompt(active_character)
+        system_prompt = build_game_system_prompt(active_character, latest_user_input=user_input)
 
         messages = [
             {"role": "system", "content": system_prompt},

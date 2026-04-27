@@ -2,14 +2,18 @@
 
 from flask import render_template, redirect, url_for, session, flash, jsonify
 
-from models import User, Character, Campaign, CampaignQuest
+from models import User, Character
 from data.character_presets import RACES, CLASSES
 
 from services.attributes import serialize_attributes
 from services.llm_service import check_provider_availability
 from services.leveling import serialize_level_progression
 from services.skills import serialize_character_skills
-from services.serializers.character_serializer import get_character_inventory_data, get_character_status_effects
+from services.serializers.character_serializer import (
+    get_character_inventory_data,
+    get_character_status_effects,
+    get_visible_campaign_quest_summary,
+)
 
 
 def register_page_routes(
@@ -19,7 +23,6 @@ def register_page_routes(
     get_active_character,
     get_active_campaign_for_character,
     get_current_campaign_location,
-    get_active_campaign_quest,
     get_recent_story_messages,
     serialize_story_messages_for_template,
 ):
@@ -94,7 +97,6 @@ def register_page_routes(
                 attributes = character.attributes
                 campaign = get_active_campaign_for_character(character.id)
                 current_location = get_current_campaign_location(campaign)
-                active_quest = get_active_campaign_quest(campaign)
                 inventory_data = get_character_inventory_data(character.id)
                 status_effects = get_character_status_effects(character.id)
                 level_progression = serialize_level_progression(character)
@@ -122,7 +124,7 @@ def register_page_routes(
                     "skills": serialized_skills,
                     "location": current_location.name if current_location else "Unknown",
                     "time": campaign.current_ingame_time if campaign else "Unknown",
-                    "quest": active_quest.title if active_quest else "No active quest",
+                    "quest": get_visible_campaign_quest_summary(campaign),
                     "equipment": inventory_data["equipment"],
                     "equipment_slots": inventory_data["equipment_slots"],
                     "equipment_summary": inventory_data["equipment_summary"],

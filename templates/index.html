@@ -199,11 +199,18 @@
                 <p id="state-time"><strong>🕒 Time:</strong> {{ active_character.current_state.time_of_day }}</p>
                 <div id="state-quest" class="quest-panel">
                     <h2>📜 Quest</h2>
-                    <div
-                        class="quest-list"
-                        title="{{ active_character.current_state.active_quest_description if active_character.current_state.active_quest_description else active_character.current_state.active_quest }}"
-                    >
-                        <strong>{{ active_character.current_state.active_quest }}</strong>
+                    <div class="quest-list">
+                        {% if active_character.current_state.visible_quests %}
+                            {% for quest in active_character.current_state.visible_quests %}
+                                <div class="quest-entry" title="{{ quest.tooltip }}">
+                                    <strong>{{ quest.display }}</strong>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="quest-entry">
+                                <strong>No open quests</strong>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -296,6 +303,26 @@
             .replaceAll('"', "&quot;")
             .replaceAll("'", "&#039;");
     }
+    function renderQuestList(visibleQuests) {
+        if (!Array.isArray(visibleQuests) || !visibleQuests.length) {
+            return `
+                <div class="quest-list">
+                    <div class="quest-entry">
+                        <strong>No open quests</strong>
+                    </div>
+                </div>
+            `;
+        }
+
+        const questItems = visibleQuests.map(quest => `
+            <div class="quest-entry" title="${escapeHtml(quest.tooltip || quest.description || quest.display || quest.title || "")}">
+                <strong>${escapeHtml(quest.display || quest.title || "Quest")}</strong>
+            </div>
+        `).join("");
+
+        return `<div class="quest-list">${questItems}</div>`;
+    }
+
 
     function fitEquipmentLabels() {
         document.querySelectorAll(".equipment-slot strong").forEach(label => {
@@ -369,12 +396,9 @@
         }
 
         if (questEl) {
-            const questDescription = character.current_state.active_quest_description || character.current_state.active_quest;
             questEl.innerHTML = `
                 <h2>📜 Quest</h2>
-                <div class="quest-list" title="${questDescription}">
-                    <strong>${character.current_state.active_quest}</strong>
-                </div>
+                ${renderQuestList(character.current_state.visible_quests)}
             `;
         }
 

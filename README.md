@@ -174,15 +174,64 @@ Each active campaign tracks:
 
 - Current location
 - Time of day
-- Active quest
-- Quest description
+- Visible quests
+- Structured quest state
+- Quest rewards and reward claim status
 
 Tools:
 
 - update_location
 - advance_time
-- set_active_quest
-- complete_active_quest
+- create_quest
+- get_quest_details
+- update_quest_objective_progress
+- validate_quest_progress
+- turn_in_quest
+- claim_quest_rewards
+
+### Quest Rules
+
+Structured quest creation, progress, turn-in, and rewards are backend-driven instead of being left to free narration.
+
+Implemented:
+
+- Strict quest objective schemas
+- Structured reward data
+- Backend reward value ranges based on quest level, danger, and quest type
+- Backend normalization and clamping for model-proposed XP and currency rewards
+- Explicit quest ids for quest progress, validation, turn-in, and reward claims
+- Multiple visible quests without a single global active quest slot
+- `bring_item` objectives that validate required inventory items and consume them on turn-in
+- `reach_location` objectives that support both stored `location_id` values and generated `location_name` destinations
+- `turn_in_quest` validates objectives, consumes delivery items, and grants normal XP, currency, and item rewards
+- Separate quest states for active, completed, turned in, and claimed rewards
+- Multiple visible quests in the UI
+- Hover details for quest description, objective progress, reward summary, and turn-in info
+- Prompt-side quest context filtering so only relevant quest context is injected into conversations
+
+Currently supported objective types:
+
+- reach_location
+- talk_to_npc
+- return_to_npc
+- collect_item
+- bring_item
+- kill_enemy_type
+- kill_npc
+
+Reward authority:
+
+- `quest_level`, `quest_type`, and `danger_level` define backend XP and currency ranges.
+- Model-provided `rewards_json` is treated as a proposal and is clamped into the backend range.
+- Model-provided `reward_rules_json` can carry optional negotiation/context hints, but it cannot widen backend reward ranges.
+- Structured quest XP, currency, and item rewards must be paid through `turn_in_quest` or `claim_quest_rewards`, not through direct reward tools.
+
+Current limitations:
+
+- `kill_enemy_type` and `kill_npc` are structurally prepared, but still need full combat/NPC-state integration
+- Generated NPCs still need a real NPC registry before generated turn-in targets can reliably use stable NPC ids
+- Quest reward constants and multipliers are implemented, but still need balancing from playtests
+- Service rewards are structured and claimable, but their later redemption flow still depends on future NPC/service systems
 
 ### Story Persistence
 
@@ -250,7 +299,7 @@ Rules:
 - Equipped container items can add inventory containers when they define a container profile.
 - Torso and leg clothing can provide small pocket containers when their item data includes a container profile.
 - Starter characters begin with simple clothing, shoes, a belt, a small belt pouch, and a wooden club equipped.
-- The starter backpack begins nearby in the rented room and creates a backpack inventory container when equipped.
+- Starter characters now begin with their backpack equipped.
 - Items cannot be unequipped while their equipment-created container still contains items.
 
 Tools:
@@ -468,8 +517,9 @@ The game turn pipeline supports:
 - Multi-tool execution in one turn
 - A bounded tool loop
 - A final no-tool narration call if the model keeps requesting tools until the loop limit is reached
-- Story history is marked as already resolved before it is sent back to the LLM
+- Story history is kept as context, while prompt rules prevent blind re-execution of past events
 - Each game request gets a backend turn id that is included in tool results
+- Quest-relevant context is injected selectively instead of always dumping every quest into every scene
 
 This prevents the technical fallback text from being shown to the player after successful tool execution.
 It also reduces accidental repeated state changes from old narration context.
@@ -495,6 +545,7 @@ Current displays:
 - Adventure chat
 - Provider selection
 - Campaign state
+- Multi-quest list with hover details
 - Equipment slots
 - Character XP progress
 - Inventory containers
@@ -513,6 +564,7 @@ Working:
 - Persistent campaigns
 - Story persistence
 - Tool-controlled adventure state
+- Structured quest creation, turn-in, and reward claim flow
 - Container inventory
 - Currency system
 - Equipment MVP
@@ -538,7 +590,10 @@ Known limitations:
 - No combat system yet
 - No NPC system yet
 - No merchant / trading system yet
+- No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
 - No structured world knowledge system yet
+- Non-quest loot, pickup/equip, and travel-time changes still need stronger tool-routing enforcement
+- Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
 
 ---

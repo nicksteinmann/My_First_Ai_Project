@@ -188,14 +188,11 @@ def normalize_tool_call(tool_name, tool_args, active_character):
     if normalized_tool_name == "set_location":
         normalized_tool_name = "update_location"
 
-    if normalized_tool_name == "update_active_quest":
-        normalized_tool_name = "set_active_quest"
-
     if normalized_tool_name == "update_location":
         if "location" in normalized_tool_args and "location_name" not in normalized_tool_args:
             normalized_tool_args["location_name"] = normalized_tool_args["location"]
 
-    if normalized_tool_name == "set_active_quest":
+    if normalized_tool_name == "create_quest":
         if "quest_title" in normalized_tool_args and "title" not in normalized_tool_args:
             normalized_tool_args["title"] = normalized_tool_args["quest_title"]
 
@@ -245,7 +242,6 @@ def get_valid_tool_names(
         *(t["function"]["name"] for t in skill_tool_definitions),
         "change_location",
         "set_location",
-        "update_active_quest",
         "update_currency",
         "update_resource",
         "damage_resource",
