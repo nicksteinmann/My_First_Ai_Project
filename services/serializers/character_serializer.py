@@ -5,6 +5,8 @@ state, and frontend-friendly dictionaries. It should collect existing backend
 state, not invent gameplay state.
 """
 
+import json
+
 from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
@@ -229,11 +231,184 @@ def get_character_status_effects(character_id):
     return serialize_status_effects(character_id)
 
 
+def _parse_quest_json(value, fallback):
+    """Parse stored quest JSON safely for serializer output."""
+
+    if not value:
+        return fallback
+
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback
+
+
+def _format_quest_progress_line(objective):
+    """Return a compact progress line for one quest objective."""
+
+    objective_type = str(objective.get("objective_type", "")).strip().lower()
+    label = objective.get("label")
+    if label:
+        return str(label)
+
+    if objective_type in {"collect_item", "bring_item"}:
+        current_count = int(objective.get("current_count", 0) or 0)
+        required_count = int(objective.get("required_count", 0) or 0)
+        item_name = objective.get("item_name") or objective.get("item_id") or "Item"
+        return f"{current_count} / {required_count} {item_name}"
+
+    if objective_type in {"talk_to_npc", "return_to_npc"}:
+        npc_id = objective.get("npc_id")
+        return f"Talk to NPC #{npc_id}"
+
+    if objective_type in {"reach_location", "visit_location", "return_to_location"}:
+        location_id = objective.get("location_id")
+        location_name = objective.get("location_name")
+        if location_id is not None:
+            return f"Reach location #{location_id}"
+        return f"Reach {location_name or 'location'}"
+
+    if objective_type == "kill_enemy_type":
+        current_count = int(objective.get("current_count", 0) or 0)
+        required_count = int(objective.get("required_count", 0) or 0)
+        enemy_type = objective.get("enemy_type") or "target"
+        return f"{current_count} / {required_count} defeat {enemy_type}"
+
+    if objective_type == "kill_npc":
+        npc_id = objective.get("npc_id")
+        return f"Defeat NPC #{npc_id}"
+
+    return objective_type.replace("_", " ").title() if objective_type else "Objective"
+
+
+def _build_quest_tooltip(quest, objectives, rewards):
+    """Build one hover tooltip text for a visible quest."""
+
+    if not quest:
+        return "No quest"
+
+    lines = [quest.description or quest.title]
+
+    if quest.target_location_id:
+        lines.append(f"Target location #{quest.target_location_id}")
+
+    if objectives:
+        lines.append("")
+        lines.append("Objectives:")
+        for objective in objectives:
+            progress_line = _format_quest_progress_line(objective)
+            completed_marker = "done" if objective.get("is_completed") else "open"
+            lines.append(f"- {progress_line} [{completed_marker}]")
+
+    currency = rewards.get("currency", {}) if isinstance(rewards, dict) else {}
+    items = rewards.get("items", []) if isinstance(rewards, dict) else []
+    services = rewards.get("services", []) if isinstance(rewards, dict) else []
+    reward_bits = []
+
+    xp_value = int(rewards.get("xp", 0) or 0) if isinstance(rewards, dict) else 0
+    if xp_value > 0:
+        reward_bits.append(f"{xp_value} XP")
+
+    if any(int(currency.get(key, 0) or 0) > 0 for key in ("gold", "silver", "copper")):
+        reward_bits.append(
+            f"{int(currency.get('gold', 0) or 0)}g / "
+            f"{int(currency.get('silver', 0) or 0)}s / "
+            f"{int(currency.get('copper', 0) or 0)}c"
+        )
+
+    if items:
+        reward_bits.append(f"{len(items)} item reward(s)")
+
+    if services:
+        reward_bits.append(f"{len(services)} service reward(s)")
+
+    if reward_bits:
+        lines.append("")
+        lines.append("Rewards:")
+        for bit in reward_bits:
+            lines.append(f"- {bit}")
+
+    if quest.turn_in_npc_id:
+        lines.append("")
+        lines.append(f"Turn in at NPC #{quest.turn_in_npc_id}")
+    if quest.turn_in_location_id:
+        lines.append(f"Turn in at location #{quest.turn_in_location_id}")
+
+    return "\n".join(lines)
+
+
+def _quest_display_status(quest):
+    """Return the player-facing quest label for one visible quest."""
+
+    if quest.status == "turned_in" and not quest.reward_claimed_at:
+        return "Completed - Collect Reward"
+
+    if quest.status == "completed":
+        return "Completed - Turn In"
+
+    return quest.title
+
+
+def _serialize_visible_quests(campaign):
+    """Return all quests that should still be shown in the UI."""
+
+    if not campaign:
+        return []
+
+    visible_statuses = {"active", "completed", "turned_in"}
+    sort_order = {"active": 0, "completed": 1, "turned_in": 2}
+    visible_quests = []
+
+    for quest in campaign.quests:
+        if quest.status not in visible_statuses:
+            continue
+        if quest.reward_claimed_at:
+            continue
+
+        objectives = _parse_quest_json(quest.objectives_json, [])
+        rewards = _parse_quest_json(quest.rewards_json, {})
+
+        visible_quests.append({
+            "id": quest.id,
+            "title": quest.title,
+            "display": _quest_display_status(quest),
+            "description": quest.description or "",
+            "status": quest.status,
+            "quest_type": quest.quest_type,
+            "objectives": objectives,
+            "rewards": rewards,
+            "quest_giver_npc_id": quest.quest_giver_npc_id,
+            "turn_in_npc_id": quest.turn_in_npc_id,
+            "start_location_id": quest.start_location_id,
+            "turn_in_location_id": quest.turn_in_location_id,
+            "target_location_id": quest.target_location_id,
+            "reward_claimed_at": quest.reward_claimed_at.isoformat() if quest.reward_claimed_at else None,
+            "tooltip": _build_quest_tooltip(quest, objectives, rewards),
+            "sort_order": sort_order.get(quest.status, 99),
+            "started_at": quest.started_at.isoformat() if quest.started_at else "",
+        })
+
+    visible_quests.sort(key=lambda quest: (quest["sort_order"], quest["started_at"], quest["id"]))
+    return visible_quests
+
+
+def get_visible_campaign_quest_summary(campaign):
+    """Return a compact summary for pages that only have one quest text slot."""
+
+    visible_quests = _serialize_visible_quests(campaign)
+    if not visible_quests:
+        return "No quests"
+
+    if len(visible_quests) == 1:
+        return visible_quests[0]["display"]
+
+    return f"{len(visible_quests)} quests"
+
+
 def serialize_character(
     character,
     get_active_campaign_for_character,
     get_current_campaign_location,
-    get_active_campaign_quest,
 ):
     """Serialize the complete active character state used by the game UI."""
 
@@ -241,7 +416,7 @@ def serialize_character(
     resources = character.resources
     campaign = get_active_campaign_for_character(character.id)
     current_location = get_current_campaign_location(campaign)
-    active_quest = get_active_campaign_quest(campaign)
+    visible_quests = _serialize_visible_quests(campaign)
     inventory_data = get_character_inventory_data(character.id)
     status_effects = get_character_status_effects(character.id)
     level_progression = serialize_level_progression(character)
@@ -292,9 +467,10 @@ def serialize_character(
         ) if serialized_skills else "None",
         "current_state": {
             "location": current_location.name if current_location else "Unknown",
+            "current_location_id": current_location.id if current_location else None,
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
-            "active_quest": active_quest.title if active_quest else "No active quest",
-            "active_quest_description": active_quest.description if active_quest else "",
+            "quest_summary": get_visible_campaign_quest_summary(campaign),
+            "visible_quests": visible_quests,
         },
         "equipment": inventory_data["equipment"],
         "equipment_slots": inventory_data["equipment_slots"],

@@ -26,7 +26,6 @@ from models import (
     Character,
     Campaign,
     CampaignLocation,
-    CampaignQuest,
     WorldTemplate,
 )
 from routes import (
@@ -88,6 +87,38 @@ def ensure_sqlite_schema_compatibility() -> None:
 
     for column_name, statement in skill_column_statements.items():
         if column_name not in skill_column_names:
+            db.session.execute(text(statement))
+
+    quest_columns = db.session.execute(text("PRAGMA table_info(campaign_quests)")).fetchall()
+    quest_column_names = {column[1] for column in quest_columns}
+    quest_column_statements = {
+        "quest_type": (
+            "ALTER TABLE campaign_quests "
+            "ADD COLUMN quest_type VARCHAR(40) NOT NULL DEFAULT 'general'"
+        ),
+        "turn_in_npc_id": "ALTER TABLE campaign_quests ADD COLUMN turn_in_npc_id INTEGER",
+        "start_location_id": "ALTER TABLE campaign_quests ADD COLUMN start_location_id INTEGER",
+        "target_location_id": "ALTER TABLE campaign_quests ADD COLUMN target_location_id INTEGER",
+        "turn_in_location_id": "ALTER TABLE campaign_quests ADD COLUMN turn_in_location_id INTEGER",
+        "objectives_json": (
+            "ALTER TABLE campaign_quests "
+            "ADD COLUMN objectives_json TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "rewards_json": (
+            "ALTER TABLE campaign_quests "
+            "ADD COLUMN rewards_json TEXT NOT NULL DEFAULT '{}'"
+        ),
+        "reward_rules_json": (
+            "ALTER TABLE campaign_quests "
+            "ADD COLUMN reward_rules_json TEXT NOT NULL DEFAULT '{}'"
+        ),
+        "turned_in_at": "ALTER TABLE campaign_quests ADD COLUMN turned_in_at DATETIME",
+        "reward_claimed_at": "ALTER TABLE campaign_quests ADD COLUMN reward_claimed_at DATETIME",
+        "failed_at": "ALTER TABLE campaign_quests ADD COLUMN failed_at DATETIME",
+    }
+
+    for column_name, statement in quest_column_statements.items():
+        if column_name not in quest_column_names:
             db.session.execute(text(statement))
 
     db.session.commit()
@@ -183,20 +214,6 @@ def create_app() -> Flask:
             .first()
         )
 
-    def get_active_campaign_quest(campaign: Optional[Campaign]) -> Optional[CampaignQuest]:
-        """
-        Return the currently active quest for a campaign, or None if none exists.
-        """
-        if campaign is None:
-            return None
-
-        return (
-            CampaignQuest.query
-            .filter_by(campaign_id=campaign.id, status="active")
-            .order_by(CampaignQuest.started_at.asc())
-            .first()
-        )
-
     def get_or_create_default_world_template() -> WorldTemplate:
         """
         Return the default world template, creating it if necessary.
@@ -248,7 +265,6 @@ def create_app() -> Flask:
                     selected_character,
                     get_active_campaign_for_character,
                     get_current_campaign_location,
-                    get_active_campaign_quest,
                 )
 
         characters = get_user_characters(user_id)
@@ -262,7 +278,6 @@ def create_app() -> Flask:
             first_character,
             get_active_campaign_for_character,
             get_current_campaign_location,
-            get_active_campaign_quest,
         )
 
     register_auth_routes(app)
@@ -274,7 +289,6 @@ def create_app() -> Flask:
         get_active_character,
         get_active_campaign_for_character,
         get_current_campaign_location,
-        get_active_campaign_quest,
         get_recent_story_messages,
         serialize_story_messages_for_template,
     )
@@ -286,7 +300,6 @@ def create_app() -> Flask:
         get_character_by_id_for_user,
         get_active_campaign_for_character,
         get_current_campaign_location,
-        get_active_campaign_quest,
         get_or_create_default_world_template,
     )
 
