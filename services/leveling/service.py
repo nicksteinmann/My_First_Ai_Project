@@ -13,6 +13,7 @@ from services.attributes import grant_level_up_attribute_xp
 from .constants import (
     BASE_RESOURCE_GAIN_PER_LEVEL,
     CLASS_RESOURCE_MULTIPLIERS,
+    LEVEL_RENOWN_TIERS,
     MAX_CHARACTER_LEVEL,
     XP_BASE_COST,
     XP_CURVE_EXPONENT,
@@ -73,6 +74,40 @@ def level_from_total_xp(total_xp: int) -> int:
         level += 1
 
     return level
+
+
+def serialize_level_renown(character_or_level: Any) -> Dict[str, Any]:
+    """Return a small social-context tier derived from character level."""
+
+    raw_level = getattr(character_or_level, "level", character_or_level)
+    level = max(1, min(int(raw_level or 1), MAX_CHARACTER_LEVEL))
+    current_tier = LEVEL_RENOWN_TIERS[0]
+
+    for tier in LEVEL_RENOWN_TIERS:
+        if tier["min_level"] <= level <= tier["max_level"]:
+            current_tier = tier
+            break
+
+    next_tier = next(
+        (
+            tier
+            for tier in LEVEL_RENOWN_TIERS
+            if int(tier["min_level"]) > level
+        ),
+        None,
+    )
+
+    return {
+        "key": current_tier["key"],
+        "label": current_tier["label"],
+        "level": level,
+        "min_level": current_tier["min_level"],
+        "max_level": current_tier["max_level"],
+        "recognition_scope": current_tier["recognition_scope"],
+        "prompt_hint": current_tier["prompt_hint"],
+        "next_tier_at": next_tier["min_level"] if next_tier else None,
+        "next_tier_label": next_tier["label"] if next_tier else None,
+    }
 
 
 def _get_character(character_id: int) -> Character:

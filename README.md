@@ -358,6 +358,9 @@ Rules:
 - Level-ups increase HP, Mana, and Energy maximum values.
 - Class multipliers control how much each resource grows per level.
 - Current HP, Mana, and Energy also increase by the gained maximum amount when the character is alive.
+- Character level also derives a small Renown/Ruf tier for social context.
+- Renown can influence whether NPCs recognize the character or know rumors about them.
+- Renown does not grant automatic rewards, discounts, authority, or quest completion.
 
 Tool:
 
@@ -370,6 +373,17 @@ Current class scaling:
 - Rogue: stronger Energy growth
 - Priest: stronger Mana growth
 - Ranger: stronger Energy growth
+
+Current Renown/Ruf tiers:
+
+- Level 1-4: Unknown
+- Level 5-9: Familiar Face
+- Level 10-19: Local Name
+- Level 20-34: Regional Reputation
+- Level 35-49: Well Known
+- Level 50-74: Famous Hero
+- Level 75-99: Legendary Figure
+- Level 100: Living Legend
 
 Note: skill XP, skill levels, skill points, and level-up choices are future work.
 

@@ -10,7 +10,7 @@ import json
 from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
-from services.leveling import serialize_level_progression
+from services.leveling import serialize_level_progression, serialize_level_renown
 from services.skills import serialize_character_skills
 from services.status_effects import serialize_status_effects
 
@@ -420,6 +420,7 @@ def serialize_character(
     inventory_data = get_character_inventory_data(character.id)
     status_effects = get_character_status_effects(character.id)
     level_progression = serialize_level_progression(character)
+    level_renown = serialize_level_renown(character)
 
     hp_current = resources.hp_current if resources else 0
     hp_max = resources.hp_max if resources else 0
@@ -444,6 +445,9 @@ def serialize_character(
         "level": character.level,
         "xp": character.xp,
         "level_progression": level_progression,
+        "level_renown": level_renown,
+        "renown_label": level_renown["label"],
+        "renown_summary": level_renown["prompt_hint"],
         "status": character.status,
         "status_effects": status_effects,
         "status_effect_summary": ", ".join(effect["name"] for effect in status_effects) if status_effects else "None",

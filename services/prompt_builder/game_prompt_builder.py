@@ -159,6 +159,7 @@ Active Character:
 - Race: {active_character['race']}
 - Level: {active_character['level']}
 - XP: {active_character.get('level_progression', {}).get('xp_into_level', 0)} / {active_character.get('level_progression', {}).get('xp_needed_this_level', 0)} toward next level
+- Renown (Ruf): {active_character.get('renown_label', 'Unknown')} - {active_character.get('renown_summary', 'Most people have never heard of this character.')}
 - Status: {active_character['status']}
 - Location: {active_character['current_state']['location']}
 - Current Location ID: {active_character['current_state'].get('current_location_id')}
@@ -185,6 +186,7 @@ Rules:
 - Do not mix quest facts between unrelated NPCs or unrelated places.
 - When an NPC or place matches a relevant stored quest, keep the quest facts consistent with the stored quest context.
 - When the user is not talking about a quest and the current place is not quest-relevant, do not inject unrelated quest details into the scene.
+- Treat Renown (Ruf) as social context only. It can influence recognition, rumors, respect, or skepticism, but never grants automatic rewards, discounts, authority, or quest completion.
 
 Tool Usage:
 - Only use the provided tools.

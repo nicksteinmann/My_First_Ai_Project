@@ -2,6 +2,7 @@ from .service import (
     add_xp,
     level_from_total_xp,
     serialize_level_progression,
+    serialize_level_renown,
     total_xp_required_for_level,
     xp_required_for_level,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "add_xp",
     "level_from_total_xp",
     "serialize_level_progression",
+    "serialize_level_renown",
     "total_xp_required_for_level",
     "xp_required_for_level",
 ]
