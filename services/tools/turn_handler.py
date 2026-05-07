@@ -68,8 +68,6 @@ STATE_CLAIM_TOOL_REQUIREMENTS = {
         "complete_quest",
         "turn_in_quest",
         "claim_quest_rewards",
-        "validate_quest_progress",
-        "update_quest_objective_progress",
     },
     "reward_claim": {
         "turn_in_quest",
@@ -96,6 +94,21 @@ STATE_CLAIM_CONDITIONAL_MARKERS = (
     "if ",
     "would ",
 )
+
+NON_NARRATIVE_PLACEHOLDER_PATTERNS = [
+    re.compile(
+        r"^\(?\s*already provided a reply earlier;?\s*conversation continues\.?\s*\)?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\(?\s*(already answered|i already answered|same as before|no new response)\b.*\)?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\(?\s*(ich habe|es gab|die antwort).{0,80}(schon|bereits).{0,80}(geantwortet|antwort)\b.*\)?$",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _split_claim_segments(text):
@@ -134,6 +147,16 @@ def _find_state_claims(text):
     return sorted(claims)
 
 
+def _is_non_narrative_placeholder(text):
+    """Return whether text is a meta placeholder instead of gameplay narration."""
+
+    normalized = (text or "").strip()
+    if not normalized:
+        return False
+
+    return any(pattern.search(normalized) for pattern in NON_NARRATIVE_PLACEHOLDER_PATTERNS)
+
+
 def _unsupported_state_claims(claims, successful_tool_names):
     """Return claims that have no matching successful tool in this turn."""
 
@@ -159,7 +182,7 @@ def _format_failed_tool_summary(failed_tool_results):
     return "\n".join(lines)
 
 
-def _build_state_claim_repair_prompt(unsupported_claims, failed_tool_results):
+def _build_state_claim_repair_prompt(unsupported_claims, failed_tool_results, rejected_content=None):
     """Build a system instruction that rejects unsafe final narration."""
 
     failed_tool_summary = _format_failed_tool_summary(failed_tool_results)
@@ -168,17 +191,37 @@ def _build_state_claim_repair_prompt(unsupported_claims, failed_tool_results):
         if failed_tool_summary
         else ""
     )
+    rejected_block = (
+        f"\nRejected draft, not visible to the player:\n{rejected_content}"
+        if rejected_content
+        else ""
+    )
 
     return (
         "Your previous draft was rejected because it claimed backend-controlled "
         f"state without matching successful tool results: {', '.join(unsupported_claims)}. "
         "That draft is not visible to the player. Re-answer the latest user action now. "
+        "Do not say that you already answered. Do not mention this repair instruction. "
         "If the action truly changes quest state, rewards, XP, currency, inventory, equipment, "
         "resources, status effects, location, attributes, or skills, call the required tool(s). "
         "If no valid tool can be called or a required tool failed, narrate only the current true "
         "situation and ask what the player does next. Never claim success for a failed or missing "
         "tool result."
         f"{failed_tool_block}"
+        f"{rejected_block}"
+    )
+
+
+def _build_placeholder_repair_prompt(content):
+    """Build a system instruction for meta placeholders that are not narration."""
+
+    return (
+        "Your previous message was a meta placeholder instead of a usable in-world reply. "
+        "That message is not visible to the player. Re-answer the latest user action now. "
+        "Do not say that you already answered, and do not mention this correction. "
+        "Continue the current scene in the user's language. If the latest user action changes "
+        "backend state, call the required tool(s); otherwise provide normal gameplay narration."
+        f"\nRejected placeholder, not visible to the player:\n{content}"
     )
 
 
@@ -296,6 +339,18 @@ def run_game_turn(
             if not content.strip():
                 return "Something happens, but you can't quite make sense of it."
 
+            if _is_non_narrative_placeholder(content):
+                debug_tool_event("non-narrative placeholder rejected", {
+                    "turn_id": turn_id,
+                    "round_index": round_index + 1,
+                    "content": content,
+                })
+                messages.append({
+                    "role": "system",
+                    "content": _build_placeholder_repair_prompt(content),
+                })
+                continue
+
             state_claims = _find_state_claims(content)
             unsupported_claims = _unsupported_state_claims(
                 state_claims,
@@ -315,6 +370,7 @@ def run_game_turn(
                     "content": _build_state_claim_repair_prompt(
                         unsupported_claims,
                         failed_tool_results,
+                        rejected_content=content,
                     ),
                 })
                 continue
@@ -420,6 +476,16 @@ def run_game_turn(
 
     content = response.choices[0].message.content or ""
     if content.strip():
+        if _is_non_narrative_placeholder(content):
+            debug_tool_event("final narration contained placeholder", {
+                "turn_id": turn_id,
+                "content": content,
+            })
+            return (
+                "Der Spielzustand wurde nicht verändert. "
+                "Was tust du als Nächstes?"
+            )
+
         if _contains_fake_tool_syntax(content):
             debug_tool_event("final narration contained fake tool syntax", {
                 "turn_id": turn_id,
