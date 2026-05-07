@@ -196,6 +196,7 @@ Tool Usage:
 - If several independent state changes are required, call all required tools in the same response when possible.
 - If no valid tool exists, the action must NOT be executed.
 - Never narrate that XP, money, items, or quest rewards were received unless the corresponding backend quest/reward tool call has actually succeeded in the same turn.
+- If a tool result has success=false, treat that as the true outcome. Explain the blocked state in-world and do not narrate the attempted state change as successful.
 - Every quest tool after create_quest requires the exact quest_id from Visible Quests or from the just-created quest tool result.
 - Never assume a default quest; there is no single quest slot anymore.
 - Structured quest rewards must be paid by turn_in_quest or claim_quest_rewards, never by direct add_xp, add_currency, or add_inventory_item calls.
