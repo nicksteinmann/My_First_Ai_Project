@@ -22,6 +22,16 @@ STATE_CLAIM_PATTERNS = [
         ),
     ),
     (
+        "paid_task_start",
+        re.compile(
+            r"\b(gute wahl|folge mir|wenn du fertig bist|ich bin oben|an die arbeit)\b"
+            r".{0,180}\b(zahl|lohn|bezahlung|belohnung|reward|paid|silber|kupfer|gold|muenze|muenzen|coin|coins)\b"
+            r"|\b(zahl|lohn|bezahlung|belohnung|reward|paid|silber|kupfer|gold|muenze|muenzen|coin|coins)\b"
+            r".{0,180}\b(gute wahl|folge mir|wenn du fertig bist|ich bin oben|an die arbeit)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "quest_completion",
         re.compile(
             r"\b(quest|auftrag|aufgabe|mission|botengang|job)\b.{0,80}\b(abgeschlossen|erledigt|abgegeben|completed|turned in|turned_in)\b"
@@ -64,6 +74,7 @@ STATE_CLAIM_PATTERNS = [
 
 STATE_CLAIM_TOOL_REQUIREMENTS = {
     "quest_acceptance": {"create_quest"},
+    "paid_task_start": {"create_quest"},
     "quest_completion": {
         "complete_quest",
         "turn_in_quest",
@@ -110,6 +121,35 @@ NON_NARRATIVE_PLACEHOLDER_PATTERNS = [
     ),
 ]
 
+DIRECT_REWARD_TOOLS = {"add_currency", "add_xp"}
+STRUCTURED_REWARD_TOOLS = {"turn_in_quest", "claim_quest_rewards"}
+
+PAID_WORK_REWARD_CONTEXT_PATTERNS = [
+    re.compile(
+        r"\b(auftrag|aufgabe|arbeit|job|mission|quest|botengang|keller|lager|sortier|liefer|wirt)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(zahl|lohn|bezahlung|belohnung|reward|paid|verdient|silber|kupfer|gold|muenze|muenzen|coin|coins)\b",
+        re.IGNORECASE,
+    ),
+]
+
+EXACT_JOB_REWARD_OFFER_PATTERNS = [
+    re.compile(
+        r"\b(auftrag|aufgabe|arbeit|job|mission|botengang|keller|lager|sortier|liefer|wirt|fuhrmann|gerber)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(zahl|lohn|bezahlung|belohnung|reward|verdienst|bezahlt|paid)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b\d+\s*(gold|silber|kupfer|copper|silver|muenze|muenzen|coin|coins)\b",
+        re.IGNORECASE,
+    ),
+]
+
 
 def _split_claim_segments(text):
     """Return small text segments for state-claim scanning."""
@@ -131,16 +171,28 @@ def _is_conditional_or_prompt_segment(segment):
     return any(marker in lowered for marker in STATE_CLAIM_CONDITIONAL_MARKERS)
 
 
+def _should_skip_claim_segment(segment, claim_name):
+    """Return whether a segment should be ignored for a specific claim."""
+
+    if "?" in segment:
+        return True
+
+    if claim_name == "paid_task_start":
+        return False
+
+    return _is_conditional_or_prompt_segment(segment)
+
+
 def _find_state_claims(text):
     """Return backend-controlled state claims found in narration text."""
 
     claims = set()
 
     for segment in _split_claim_segments(text):
-        if _is_conditional_or_prompt_segment(segment):
-            continue
-
         for claim_name, pattern in STATE_CLAIM_PATTERNS:
+            if _should_skip_claim_segment(segment, claim_name):
+                continue
+
             if pattern.search(segment):
                 claims.add(claim_name)
 
@@ -155,6 +207,90 @@ def _is_non_narrative_placeholder(text):
         return False
 
     return any(pattern.search(normalized) for pattern in NON_NARRATIVE_PLACEHOLDER_PATTERNS)
+
+
+def _get_message_content(message):
+    """Return content from dict or SDK message objects."""
+
+    if isinstance(message, dict):
+        return message.get("content") or ""
+
+    return getattr(message, "content", "") or ""
+
+
+def _recent_message_text(messages, limit=8):
+    """Return compact recent conversational text for policy checks."""
+
+    return "\n".join(
+        _get_message_content(message)
+        for message in messages[-limit:]
+        if _get_message_content(message)
+    )
+
+
+def _has_paid_work_reward_context(messages):
+    """Return whether recent context looks like a structured paid NPC job."""
+
+    recent_text = _recent_message_text(messages)
+    if not recent_text:
+        return False
+
+    return all(
+        pattern.search(recent_text)
+        for pattern in PAID_WORK_REWARD_CONTEXT_PATTERNS
+    )
+
+
+def _find_narration_policy_violations(text, successful_tool_names):
+    """Return narration policy violations that are not direct state claims."""
+
+    successful_tool_names = set(successful_tool_names or [])
+    if successful_tool_names.intersection({"create_quest", *STRUCTURED_REWARD_TOOLS}):
+        return []
+
+    if all(pattern.search(text or "") for pattern in EXACT_JOB_REWARD_OFFER_PATTERNS):
+        return ["fixed_job_reward_offer"]
+
+    return []
+
+
+def _build_policy_repair_prompt(violations, rejected_content):
+    """Build a repair prompt for narration that breaks non-state policy."""
+
+    return (
+        "Your previous draft was rejected because it broke narration policy: "
+        f"{', '.join(violations)}. That draft is not visible to the player. "
+        "Re-answer the latest user action now in the user's language. "
+        "For newly offered paid NPC jobs, do not quote exact numeric pay unless "
+        "a stored quest or successful quest reward tool supplied that amount. "
+        "If the player has accepted the paid job, call create_quest in this turn. "
+        "If the job is only being offered, do not call create_quest yet; describe "
+        "the pay qualitatively instead."
+        f"\nRejected draft, not visible to the player:\n{rejected_content}"
+    )
+
+
+def _should_block_direct_reward_tool(tool_name, messages, successful_tool_names):
+    """Return whether a direct reward tool bypasses structured quest rewards."""
+
+    if tool_name not in DIRECT_REWARD_TOOLS:
+        return False
+
+    return _has_paid_work_reward_context(messages)
+
+
+def _blocked_direct_reward_result(tool_name):
+    """Return a failed tool result for direct structured-job reward bypasses."""
+
+    return {
+        "success": False,
+        "tool": tool_name,
+        "message": (
+            "Direct reward tools are blocked for paid NPC jobs and structured tasks. "
+            "Create or use a structured quest, then pay rewards through turn_in_quest "
+            "or claim_quest_rewards so backend reward rules define the payout."
+        ),
+    }
 
 
 def _unsupported_state_claims(claims, successful_tool_names):
@@ -351,6 +487,26 @@ def run_game_turn(
                 })
                 continue
 
+            policy_violations = _find_narration_policy_violations(
+                content,
+                successful_tool_names,
+            )
+            if policy_violations:
+                debug_tool_event("narration policy rejected", {
+                    "turn_id": turn_id,
+                    "round_index": round_index + 1,
+                    "violations": policy_violations,
+                    "content": content,
+                })
+                messages.append({
+                    "role": "system",
+                    "content": _build_policy_repair_prompt(
+                        policy_violations,
+                        content,
+                    ),
+                })
+                continue
+
             state_claims = _find_state_claims(content)
             unsupported_claims = _unsupported_state_claims(
                 state_claims,
@@ -402,30 +558,43 @@ def run_game_turn(
                 "arguments": normalized_tool_args,
             })
 
-            tool_result = execute_normalized_tool(
-                normalized_tool_name=normalized_tool_name,
-                normalized_tool_args=normalized_tool_args,
-                campaign_id=campaign_id,
-                character_id=active_character["id"],
-                state_tool_definitions=state_tool_definitions,
-                inventory_tool_definitions=inventory_tool_definitions,
-                currency_tool_definitions=currency_tool_definitions,
-                equipment_tool_definitions=equipment_tool_definitions,
-                resource_tool_definitions=resource_tool_definitions,
-                status_effect_tool_definitions=status_effect_tool_definitions,
-                leveling_tool_definitions=leveling_tool_definitions,
-                attribute_tool_definitions=attribute_tool_definitions,
-                skill_tool_definitions=skill_tool_definitions,
-                execute_state_tool=execute_state_tool,
-                execute_inventory_tool=execute_inventory_tool,
-                execute_currency_tool=execute_currency_tool,
-                execute_equipment_tool=execute_equipment_tool,
-                execute_resource_tool=execute_resource_tool,
-                execute_status_effect_tool=execute_status_effect_tool,
-                execute_leveling_tool=execute_leveling_tool,
-                execute_attribute_tool=execute_attribute_tool,
-                execute_skill_tool=execute_skill_tool,
-            )
+            if _should_block_direct_reward_tool(
+                normalized_tool_name,
+                messages,
+                successful_tool_names,
+            ):
+                debug_tool_event("direct reward tool blocked", {
+                    "turn_id": turn_id,
+                    "round_index": round_index + 1,
+                    "tool_name": normalized_tool_name,
+                    "arguments": normalized_tool_args,
+                })
+                tool_result = _blocked_direct_reward_result(normalized_tool_name)
+            else:
+                tool_result = execute_normalized_tool(
+                    normalized_tool_name=normalized_tool_name,
+                    normalized_tool_args=normalized_tool_args,
+                    campaign_id=campaign_id,
+                    character_id=active_character["id"],
+                    state_tool_definitions=state_tool_definitions,
+                    inventory_tool_definitions=inventory_tool_definitions,
+                    currency_tool_definitions=currency_tool_definitions,
+                    equipment_tool_definitions=equipment_tool_definitions,
+                    resource_tool_definitions=resource_tool_definitions,
+                    status_effect_tool_definitions=status_effect_tool_definitions,
+                    leveling_tool_definitions=leveling_tool_definitions,
+                    attribute_tool_definitions=attribute_tool_definitions,
+                    skill_tool_definitions=skill_tool_definitions,
+                    execute_state_tool=execute_state_tool,
+                    execute_inventory_tool=execute_inventory_tool,
+                    execute_currency_tool=execute_currency_tool,
+                    execute_equipment_tool=execute_equipment_tool,
+                    execute_resource_tool=execute_resource_tool,
+                    execute_status_effect_tool=execute_status_effect_tool,
+                    execute_leveling_tool=execute_leveling_tool,
+                    execute_attribute_tool=execute_attribute_tool,
+                    execute_skill_tool=execute_skill_tool,
+                )
 
             if isinstance(tool_result, dict) and turn_id:
                 tool_result.setdefault("turn_id", turn_id)
@@ -492,6 +661,21 @@ def run_game_turn(
                 "content": content,
             })
             return "Die ausgeführten Aktionen sind verarbeitet. Was tust du als Nächstes?"
+
+        policy_violations = _find_narration_policy_violations(
+            content,
+            successful_tool_names,
+        )
+        if policy_violations:
+            debug_tool_event("final narration policy rejected", {
+                "turn_id": turn_id,
+                "violations": policy_violations,
+                "content": content,
+            })
+            return (
+                "Der genaue Lohn ist noch nicht backendseitig festgelegt. "
+                "Was tust du als Nächstes?"
+            )
 
         state_claims = _find_state_claims(content)
         unsupported_claims = _unsupported_state_claims(
