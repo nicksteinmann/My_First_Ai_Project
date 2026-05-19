@@ -34,7 +34,8 @@ STATE_CLAIM_PATTERNS = [
     (
         "quest_completion",
         re.compile(
-            r"\b(quest|auftrag|aufgabe|mission|botengang|job)\b.{0,80}\b(abgeschlossen|erledigt|abgegeben|completed|turned in|turned_in)\b"
+            r"\b(quest|auftrag|aufgabe|mission|botengang|job)\b.{0,80}\b(abgeschlossen|abgegeben|completed|turned in|turned_in)\b"
+            r"|\b(auftrag|aufgabe|mission|botengang|job)\b.{0,40}\berledigt\b"
             r"|\b(abgeschlossen|erledigt|abgegeben)\b.{0,30}\b(quest|auftrag|aufgabe|mission|botengang|job)\b",
             re.IGNORECASE,
         ),

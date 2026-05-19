@@ -32,7 +32,7 @@ DANGER_REWARD_MULTIPLIERS = {
     "deadly": 1.6,
 }
 
-QUEST_BASE_CURRENCY_VALUE = 80
+QUEST_BASE_CURRENCY_VALUE = 20
 QUEST_BASE_XP = 25
 NEGOTIATION_BONUS_BY_DANGER = {
     "safe": 5,
@@ -332,6 +332,19 @@ def _normalize_rewards_payload(rewards_payload, reward_rules: dict | None = None
     services = rewards_payload.get("services")
     if isinstance(services, list):
         normalized["services"] = services
+
+    if reward_rules and "currency" not in normalized and not normalized.get("items") and not normalized.get("services"):
+        reward_value = int(
+            reward_rules.get("suggested_reward_value")
+            or reward_rules.get("reward_value_min")
+            or 0
+        )
+        silver_to_copper = int(CURRENCY_CONVERSION_RATES["silver_to_copper"])
+        normalized["currency"] = {
+            "gold": reward_value // GOLD_TO_COPPER,
+            "silver": (reward_value % GOLD_TO_COPPER) // silver_to_copper,
+            "copper": reward_value % silver_to_copper,
+        }
 
     return normalized
 
