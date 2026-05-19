@@ -1,0 +1,86 @@
+import unittest
+
+from services.adventure_state.tools import STATE_TOOL_DEFINITIONS
+from services.attributes.tools import ATTRIBUTE_TOOL_DEFINITIONS
+from services.currency.tools import CURRENCY_TOOL_DEFINITIONS
+from services.equipment.tools import EQUIPMENT_TOOL_DEFINITIONS
+from services.inventory.tools import INVENTORY_TOOL_DEFINITIONS
+from services.leveling.tools import LEVELING_TOOL_DEFINITIONS
+from services.resources.tools import RESOURCE_TOOL_DEFINITIONS
+from services.skills.tools import SKILL_TOOL_DEFINITIONS
+from services.status_effects.tools import STATUS_EFFECT_TOOL_DEFINITIONS
+
+
+def _tool_names(tool_definitions):
+    return [tool["function"]["name"] for tool in tool_definitions]
+
+
+class ToolDefinitionContractTestCase(unittest.TestCase):
+    def test_known_tool_definition_names_are_intentional(self):
+        expected = {
+            "state": [
+                "update_location",
+                "advance_time",
+                "create_quest",
+                "validate_quest_progress",
+                "get_quest_details",
+                "update_quest_objective_progress",
+                "claim_quest_rewards",
+                "turn_in_quest",
+            ],
+            "currency": [
+                "add_currency",
+                "remove_currency",
+                "get_currency",
+            ],
+            "inventory": [
+                "get_inventory",
+                "add_inventory_item",
+                "remove_inventory_item",
+            ],
+            "equipment": [
+                "get_equipment",
+                "equip_item",
+                "unequip_item",
+            ],
+            "resources": [
+                "get_resources",
+                "add_resource",
+                "remove_resource",
+                "set_resource",
+            ],
+            "leveling": [
+                "add_xp",
+            ],
+            "attributes": [
+                "add_attribute_xp",
+            ],
+            "skills": [
+                "get_skills",
+                "add_skill_xp",
+                "create_custom_skill",
+            ],
+            "status_effects": [
+                "get_status_effects",
+                "apply_status_effect",
+                "remove_status_effect",
+            ],
+        }
+
+        actual = {
+            "state": _tool_names(STATE_TOOL_DEFINITIONS),
+            "currency": _tool_names(CURRENCY_TOOL_DEFINITIONS),
+            "inventory": _tool_names(INVENTORY_TOOL_DEFINITIONS),
+            "equipment": _tool_names(EQUIPMENT_TOOL_DEFINITIONS),
+            "resources": _tool_names(RESOURCE_TOOL_DEFINITIONS),
+            "leveling": _tool_names(LEVELING_TOOL_DEFINITIONS),
+            "attributes": _tool_names(ATTRIBUTE_TOOL_DEFINITIONS),
+            "skills": _tool_names(SKILL_TOOL_DEFINITIONS),
+            "status_effects": _tool_names(STATUS_EFFECT_TOOL_DEFINITIONS),
+        }
+
+        self.assertEqual(expected, actual)
+
+
+if __name__ == "__main__":
+    unittest.main()
