@@ -702,6 +702,15 @@ Optional seed script:
 python seed_data.py
 ```
 
+### 6. Run backend regression tests
+
+The current test suite uses Python's built-in `unittest` runner, so no extra
+test dependency is required.
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ---
 
 ## Environment Notes

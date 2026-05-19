@@ -142,7 +142,7 @@ EXACT_JOB_REWARD_OFFER_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(zahl|lohn|bezahlung|belohnung|reward|verdienst|bezahlt|paid)\b",
+        r"\b(zahl|zahlt|zahlen|lohn|bezahlung|belohnung|reward|verdienst|bezahlt|paid)\b",
         re.IGNORECASE,
     ),
     re.compile(
