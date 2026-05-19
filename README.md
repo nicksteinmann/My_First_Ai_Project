@@ -534,9 +534,15 @@ The game turn pipeline supports:
 - Story history is kept as context, while prompt rules prevent blind re-execution of past events
 - Each game request gets a backend turn id that is included in tool results
 - Quest-relevant context is injected selectively instead of always dumping every quest into every scene
+- Final narration is checked for backend-controlled state claims such as quest completion, rewards, XP, currency, or inventory gains
+- If the model claims those outcomes without matching successful tool results, the draft is rejected and the model must call tools or restate the scene without false state changes
+- Meta placeholders such as "already provided a reply" are also rejected so they do not reach the player as empty turns
+- Direct reward tools such as `add_currency` and `add_xp` are blocked in paid NPC job context; structured work must be created and paid through quest tools
+- Quest creation fills missing concrete currency rewards from backend reward rules so turn-in validation has a real payout value
 
 This prevents the technical fallback text from being shown to the player after successful tool execution.
 It also reduces accidental repeated state changes from old narration context.
+It keeps narration and backend state closer together when a model forgets a required tool call or ignores a failed tool result.
 
 ---
 
