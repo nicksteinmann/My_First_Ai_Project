@@ -17,6 +17,7 @@ from services.adventure_state.tools import (
     claim_quest_rewards,
     create_quest,
     get_quest_details,
+    move_to_coordinates,
     turn_in_quest,
     update_location,
     update_quest_objective_progress,
@@ -218,6 +219,165 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertTrue(progress["success"], progress)
         self.assertEqual("completed", progress["quest"]["status"])
         self.assertTrue(progress["quest"]["objectives"][0]["is_completed"])
+
+    def test_update_location_resolves_world_coordinates_and_inherits_local_context(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.assertEqual("Willowbrook", moved["location_name"])
+        self.assertEqual("crownfields", moved["location_context"]["region_id"])
+        self.assertEqual(48.4, moved["location_context"]["coordinate_x"])
+        self.assertEqual(48.1, moved["location_context"]["coordinate_y"])
+
+        cellar = update_location(
+            campaign_id=self.campaign.id,
+            location_name="The Screeching Rat - Cellar",
+            location_type="cellar",
+            description="A cellar under the local tavern.",
+        )
+        self.assertTrue(cellar["success"], cellar)
+        self.assertEqual("inherited", cellar["location_context"]["coordinate_source"])
+        self.assertEqual(48.4, cellar["location_context"]["coordinate_x"])
+        self.assertEqual(48.1, cellar["location_context"]["coordinate_y"])
+        self.assertEqual("crownfields", cellar["location_context"]["region_id"])
+        self.assertIsNone(cellar["location_context"]["world_location_id"])
+
+    def test_update_location_coordinate_move_changes_region_context(self):
+        crownfields_move = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Road near Duskmire Watch",
+            location_type="road",
+            coordinate_x=76.0,
+            coordinate_y=61.0,
+        )
+        self.assertTrue(crownfields_move["success"], crownfields_move)
+        self.assertEqual("crownfields", crownfields_move["location_context"]["region_id"])
+        self.assertEqual("Duskmire Fringe", crownfields_move["location_context"]["subregion"])
+
+        grimscar_move = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Redrock Border Road",
+            location_type="road",
+            coordinate_x=86.7,
+            coordinate_y=55.2,
+        )
+        self.assertTrue(grimscar_move["success"], grimscar_move)
+        self.assertEqual("grimscar_wastes", grimscar_move["location_context"]["region_id"])
+        self.assertEqual("Redrock Border", grimscar_move["location_context"]["subregion"])
+
+    def test_move_to_coordinates_validates_distance_and_updates_current_location(self):
+        start = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(start["success"], start)
+
+        nearby_move = move_to_coordinates(
+            campaign_id=self.campaign.id,
+            destination_name="Greenwatch Road",
+            location_type="road",
+            coordinate_x=49.80049,
+            coordinate_y=41.00049,
+            travel_mode="walk",
+        )
+        self.assertTrue(nearby_move["success"], nearby_move)
+        self.assertEqual("move_to_coordinates", nearby_move["tool"])
+        self.assertEqual("Greenwatch Edge", nearby_move["location_context"]["subregion"])
+        self.assertEqual(49.8, nearby_move["location_context"]["coordinate_x"])
+        self.assertEqual(41.0, nearby_move["location_context"]["coordinate_y"])
+        self.assertLessEqual(nearby_move["movement"]["distance_km"], 80)
+        self.assertEqual(nearby_move["location_id"], self.campaign.current_location_id)
+
+        far_move = move_to_coordinates(
+            campaign_id=self.campaign.id,
+            destination_name="Redrock Pass",
+            world_location_id="redrock_pass",
+            travel_mode="walk",
+        )
+        self.assertFalse(far_move["success"], far_move)
+        self.assertIn("too far", far_move["error"])
+        self.assertTrue(far_move["movement"]["requires_smaller_steps"])
+
+        long_move = move_to_coordinates(
+            campaign_id=self.campaign.id,
+            destination_name="Redrock Pass",
+            world_location_id="redrock_pass",
+            travel_mode="cart",
+            allow_long_travel=True,
+        )
+        self.assertTrue(long_move["success"], long_move)
+        self.assertEqual("grimscar_wastes", long_move["location_context"]["region_id"])
+        self.assertEqual("redrock_pass", long_move["location_context"]["world_location_id"])
+
+    def test_move_to_coordinates_returns_backend_travel_time_estimate(self):
+        start = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(start["success"], start)
+
+        moved = move_to_coordinates(
+            campaign_id=self.campaign.id,
+            destination_name="Greenwatch",
+            world_location_id="greenwatch",
+            travel_mode="walk",
+        )
+
+        self.assertTrue(moved["success"], moved)
+        self.assertEqual(74.0, moved["movement"]["distance_km"])
+        self.assertEqual(799, moved["movement"]["estimated_minutes"])
+        self.assertEqual("travel_edge", moved["movement"]["travel_estimate"]["distance_source"])
+        self.assertEqual("road", moved["movement"]["travel_estimate"]["route_mode"])
+
+    def test_quest_location_ids_serialize_coordinate_context(self):
+        start = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        target = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Redrock Pass",
+            location_type="border_pass",
+            world_location_id="redrock_pass",
+        )
+        self.assertTrue(start["success"], start)
+        self.assertTrue(target["success"], target)
+
+        result = create_quest(
+            campaign_id=self.campaign.id,
+            title="Scout the Border",
+            description="Travel from Willowbrook to Redrock Pass and report back.",
+            quest_type="travel",
+            start_location_id=start["location_id"],
+            target_location_id=target["location_id"],
+            turn_in_location_id=start["location_id"],
+            objectives_json=json.dumps([
+                {
+                    "objective_type": "reach_location",
+                    "location_id": target["location_id"],
+                }
+            ]),
+            quest_level=1,
+            danger_level="moderate",
+        )
+        self.assertTrue(result["success"], result)
+
+        location_refs = result["quest"]["location_refs"]
+        self.assertEqual("Willowbrook", location_refs["start"]["name"])
+        self.assertEqual("crownfields", location_refs["start"]["location_context"]["region_id"])
+        self.assertEqual("Redrock Pass", location_refs["target"]["name"])
+        self.assertEqual("grimscar_wastes", location_refs["target"]["location_context"]["region_id"])
+        self.assertEqual("Redrock Border", location_refs["target"]["location_context"]["subregion"])
 
     def test_overquoted_currency_reward_is_clamped_to_backend_range(self):
         result = create_quest(

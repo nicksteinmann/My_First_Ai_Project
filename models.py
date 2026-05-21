@@ -242,7 +242,7 @@ class Campaign(db.Model, TimestampMixin):
     world_template_id = db.Column(db.Integer, db.ForeignKey("world_templates.id"), nullable=False)
     title = db.Column(db.String(120), nullable=False)
     status = db.Column(db.String(20), default="active", nullable=False)
-    current_location_id = db.Column(db.Integer, db.ForeignKey("template_locations.id"))
+    current_location_id = db.Column(db.Integer)
     current_ingame_day = db.Column(db.Integer, default=1, nullable=False)
     current_ingame_time = db.Column(db.String(20), default="morning", nullable=False)
     last_played_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -250,7 +250,12 @@ class Campaign(db.Model, TimestampMixin):
     character = db.relationship("Character", back_populates="campaigns")
     world_template = db.relationship("WorldTemplate")
     state = db.relationship("CampaignState", back_populates="campaign", uselist=False, cascade="all, delete-orphan")
-    locations = db.relationship("CampaignLocation", back_populates="campaign", cascade="all, delete-orphan")
+    locations = db.relationship(
+        "CampaignLocation",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        foreign_keys="CampaignLocation.campaign_id",
+    )
     npcs = db.relationship("CampaignNPC", back_populates="campaign", cascade="all, delete-orphan")
     quests = db.relationship("CampaignQuest", back_populates="campaign", cascade="all, delete-orphan")
     items = db.relationship("CampaignItem", back_populates="campaign", cascade="all, delete-orphan")
@@ -288,11 +293,23 @@ class CampaignLocation(db.Model, TimestampMixin):
     name = db.Column(db.String(120), nullable=False)
     location_type = db.Column(db.String(40), nullable=False)
     description = db.Column(db.Text)
+    coordinate_x = db.Column(db.Float)
+    coordinate_y = db.Column(db.Float)
+    coordinate_source = db.Column(db.String(40))
+    region_id = db.Column(db.String(80))
+    region_name = db.Column(db.String(120))
+    subregion = db.Column(db.String(120))
+    world_location_id = db.Column(db.String(80))
+    world_location_name = db.Column(db.String(120))
     is_discovered = db.Column(db.Boolean, default=False, nullable=False)
     is_custom = db.Column(db.Boolean, default=False, nullable=False)
     custom_state_json = db.Column(db.Text)
 
-    campaign = db.relationship("Campaign", back_populates="locations")
+    campaign = db.relationship(
+        "Campaign",
+        back_populates="locations",
+        foreign_keys=[campaign_id],
+    )
 
 
 class CampaignNPC(db.Model, TimestampMixin):

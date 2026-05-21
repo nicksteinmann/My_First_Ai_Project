@@ -173,6 +173,7 @@ The AI must not directly modify game state. Every state change must go through v
 Each active campaign tracks:
 
 - Current location
+- Current map coordinates, region, and subregion for campaign locations
 - Time of day
 - Visible quests
 - Structured quest state
@@ -181,6 +182,7 @@ Each active campaign tracks:
 Tools:
 
 - update_location
+- move_to_coordinates
 - advance_time
 - create_quest
 - get_quest_details
@@ -203,6 +205,12 @@ Implemented:
 - Multiple visible quests without a single global active quest slot
 - `bring_item` objectives that validate required inventory items and consume them on turn-in
 - `reach_location` objectives that support both stored `location_id` values and generated `location_name` destinations
+- Campaign locations can store Avalion map coordinates and inherit regional context from fixed world locations
+- `update_location` can resolve known Avalion places, accept explicit coordinates, or inherit the current coordinate for local sublocations
+- `move_to_coordinates` handles overland map movement from the current coordinate to a fixed world location or explicit generated-place coordinate
+- Map coordinates are normalized to 3 decimal places; with 10 km per coordinate unit this gives roughly 10 meter precision
+- Normal coordinate movement is distance-validated against backend map data so small jobs do not silently jump across the continent
+- Travel duration estimates are backend-derived from distance, travel mode, route mode, and terrain hints; walking defaults to 5 km/h
 - `turn_in_quest` validates objectives, consumes delivery items, and grants normal XP, currency, and item rewards
 - Separate quest states for active, completed, turned in, and claimed rewards
 - Multiple visible quests in the UI
@@ -595,7 +603,11 @@ Working:
 - Automatic attribute XP from character level-ups
 - Skill progression and skill XP tools
 - Structured Avalion world map data with fixed regions, cities, coordinates, and route distances
+- MVP rectangular region and subregion bounds for coordinate-based location resolution
 - World overview page backed by `data/world.json`
+- Active campaign locations can carry coordinate, region, subregion, and fixed-world-location context
+- Coordinate travel tool that validates destination distance before updating the active campaign location
+- Backend travel-time estimation for coordinate and fixed-route travel; applying those minutes to the in-game clock is still separate
 - Multi-system tool pipeline
 - UI state refresh after game turns
 - Rule-grounded item and state interaction through backend tools
@@ -613,8 +625,9 @@ Known limitations:
 - No NPC system yet
 - No merchant / trading system yet
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
-- Structured map foundation exists, but active gameplay location/coordinate resolution is not connected yet
+- Region/subregion bounds are MVP rectangles; organic border polygons and generated-place persistence rules still need deeper map integration
 - Non-quest loot, pickup/equip, and travel-time changes still need stronger tool-routing enforcement
+- Coordinate travel updates location, but exact travel-time calculation is still separate follow-up work
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
 
@@ -637,7 +650,7 @@ Mid-term:
 - Merchant and trading tools
 - NPC interaction system
 - Combat system
-- Player location, region/subregion resolution, and coordinate-based travel time
+- Organic region/subregion polygons, generated-place persistence, and coordinate-based travel time
 - Better tool retry and failure handling
 
 Long-term:

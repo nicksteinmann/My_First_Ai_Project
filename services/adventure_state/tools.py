@@ -8,6 +8,15 @@ from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATE
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item, get_inventory, remove_inventory_item
 from services.leveling.service import add_xp
+from services.world_data import (
+    build_location_context_from_world_location,
+    distance_km_between_coordinates,
+    estimate_travel_between_coordinates,
+    estimate_travel_between_world_locations,
+    find_world_location,
+    normalize_coordinate,
+    resolve_coordinate_context,
+)
 
 
 TIME_ORDER = ["late night", "early morning", "morning", "noon", "afternoon", "evening", "night", "midnight"]
@@ -62,6 +71,19 @@ SERVICE_SCHEMA = {
     "favor": {"required": ["provider_npc_id", "reward_value", "uses"]},
 }
 
+LOCATION_CONTEXT_FIELDS = (
+    "coordinate_x",
+    "coordinate_y",
+    "coordinate_source",
+    "region_id",
+    "region_name",
+    "subregion",
+    "world_location_id",
+    "world_location_name",
+)
+MAX_LOCAL_TRAVEL_DISTANCE_KM = 80
+MAX_DECLARED_LONG_TRAVEL_DISTANCE_KM = 500
+
 
 def _normalize_time_label(value: str) -> str:
     """Normalize time labels to the current coarse MVP time scale."""
@@ -95,7 +117,136 @@ def _advance_time_label(current_label: str, minutes: int) -> str:
     return TIME_ORDER[new_index]
 
 
-def update_location(campaign_id: int, location_name: str, location_type: str = None, description: str = None):
+def _coerce_optional_coordinate(value, field_name: str):
+    """Return an optional coordinate float or raise a clear validation error."""
+
+    if value in (None, ""):
+        return None
+
+    try:
+        return normalize_coordinate(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number.") from exc
+
+
+def _get_current_campaign_location(campaign: Campaign):
+    """Return the current campaign location row if one is available."""
+
+    if not campaign or not campaign.current_location_id:
+        return None
+
+    return db.session.get(CampaignLocation, campaign.current_location_id)
+
+
+def _copy_location_context_from_current(campaign: Campaign) -> dict:
+    """Return inherited coordinate context for generated local sublocations."""
+
+    current_location = _get_current_campaign_location(campaign)
+    if not current_location:
+        return {}
+
+    if current_location.coordinate_x is None or current_location.coordinate_y is None:
+        return {}
+
+    return {
+        "coordinate_x": normalize_coordinate(current_location.coordinate_x),
+        "coordinate_y": normalize_coordinate(current_location.coordinate_y),
+        "coordinate_source": "inherited",
+        "region_id": current_location.region_id,
+        "region_name": current_location.region_name,
+        "subregion": current_location.subregion,
+        "world_location_id": None,
+        "world_location_name": None,
+    }
+
+
+def _resolve_location_context(
+    campaign: Campaign,
+    location_name: str,
+    coordinate_x=None,
+    coordinate_y=None,
+    world_location_id: str = None,
+) -> dict:
+    """Resolve fixed, provided, or inherited coordinate context for a location."""
+
+    if (coordinate_x is None) != (coordinate_y is None):
+        raise ValueError("Both coordinate_x and coordinate_y are required when coordinates are provided.")
+
+    fixed_location = None
+    if world_location_id:
+        fixed_location = find_world_location(world_location_id)
+
+    if fixed_location is None:
+        fixed_location = find_world_location(location_name)
+
+    if fixed_location:
+        return build_location_context_from_world_location(fixed_location)
+
+    if coordinate_x is not None and coordinate_y is not None:
+        context = resolve_coordinate_context(coordinate_x, coordinate_y)
+        context["coordinate_source"] = "provided_coordinates"
+        return context
+
+    return _copy_location_context_from_current(campaign)
+
+
+def _apply_location_context(location: CampaignLocation, context: dict, overwrite: bool = False) -> None:
+    """Apply coordinate and region context to a campaign location."""
+
+    for field_name in LOCATION_CONTEXT_FIELDS:
+        if field_name not in context:
+            continue
+
+        value = context.get(field_name)
+        current_value = getattr(location, field_name, None)
+        if overwrite or current_value in (None, ""):
+            if field_name in {"coordinate_x", "coordinate_y"} and value is not None:
+                value = normalize_coordinate(value)
+            setattr(location, field_name, value)
+
+
+def _serialize_location_context(location: CampaignLocation) -> dict:
+    """Return coordinate and region context for tool responses."""
+
+    return {
+        "coordinate_x": normalize_coordinate(location.coordinate_x) if location.coordinate_x is not None else None,
+        "coordinate_y": normalize_coordinate(location.coordinate_y) if location.coordinate_y is not None else None,
+        "coordinate_source": location.coordinate_source,
+        "region_id": location.region_id,
+        "region_name": location.region_name,
+        "subregion": location.subregion,
+        "world_location_id": location.world_location_id,
+        "world_location_name": location.world_location_name,
+    }
+
+
+def _serialize_quest_location_reference(location_id: int | None) -> dict | None:
+    """Return a quest location reference with coordinate context."""
+
+    if location_id is None:
+        return None
+
+    location = db.session.get(CampaignLocation, location_id)
+    if not location:
+        return None
+
+    return {
+        "id": location.id,
+        "name": location.name,
+        "location_type": location.location_type,
+        "location_context": _serialize_location_context(location),
+    }
+
+
+def update_location(
+    campaign_id: int,
+    location_name: str,
+    location_type: str = None,
+    description: str = None,
+    coordinate_x=None,
+    coordinate_y=None,
+    world_location_id: str = None,
+):
     """Create/find a campaign location and make it current."""
 
     campaign = db.session.get(Campaign, campaign_id)
@@ -112,6 +263,22 @@ def update_location(campaign_id: int, location_name: str, location_type: str = N
         }
 
     location_name = location_name.strip()
+
+    try:
+        coordinate_x = _coerce_optional_coordinate(coordinate_x, "coordinate_x")
+        coordinate_y = _coerce_optional_coordinate(coordinate_y, "coordinate_y")
+        location_context = _resolve_location_context(
+            campaign=campaign,
+            location_name=location_name,
+            coordinate_x=coordinate_x,
+            coordinate_y=coordinate_y,
+            world_location_id=world_location_id,
+        )
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+        }
 
     existing_location = (
         CampaignLocation.query
@@ -138,6 +305,21 @@ def update_location(campaign_id: int, location_name: str, location_type: str = N
         )
         db.session.add(location)
         db.session.flush()
+
+    should_overwrite_context = bool(
+        location_context
+        and (
+            coordinate_x is not None
+            or coordinate_y is not None
+            or find_world_location(world_location_id)
+            or find_world_location(location_name)
+        )
+    )
+    _apply_location_context(
+        location=location,
+        context=location_context,
+        overwrite=should_overwrite_context,
+    )
 
     if hasattr(campaign, "current_location_id"):
         campaign.current_location_id = location.id
@@ -190,8 +372,167 @@ def update_location(campaign_id: int, location_name: str, location_type: str = N
         "tool": "update_location",
         "location_id": location.id,
         "location_name": location.name,
-        "location_type": location.location_type
+        "location_type": location.location_type,
+        "location_context": _serialize_location_context(location),
     }
+
+
+def move_to_coordinates(
+    campaign_id: int,
+    destination_name: str,
+    coordinate_x=None,
+    coordinate_y=None,
+    world_location_id: str = None,
+    location_type: str = None,
+    description: str = None,
+    travel_mode: str = "walk",
+    terrain: str = None,
+    allow_long_travel: bool = False,
+):
+    """Move the current campaign position across the Avalion map with distance validation."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {
+            "success": False,
+            "error": "Campaign not found."
+        }
+
+    current_location = _get_current_campaign_location(campaign)
+    if not current_location or current_location.coordinate_x is None or current_location.coordinate_y is None:
+        return {
+            "success": False,
+            "error": "Current location has no map coordinates."
+        }
+    start_location_id = current_location.id
+    start_location_name = current_location.name
+    start_coordinate_x = normalize_coordinate(current_location.coordinate_x)
+    start_coordinate_y = normalize_coordinate(current_location.coordinate_y)
+    start_world_location_id = current_location.world_location_id
+
+    if not destination_name or not destination_name.strip():
+        return {
+            "success": False,
+            "error": "Destination name is required."
+        }
+
+    destination_name = destination_name.strip()
+    fixed_location = None
+    if world_location_id:
+        fixed_location = find_world_location(world_location_id)
+
+    if fixed_location is None:
+        fixed_location = find_world_location(destination_name)
+
+    try:
+        if fixed_location:
+            destination_x = normalize_coordinate(fixed_location["x"])
+            destination_y = normalize_coordinate(fixed_location["y"])
+            resolved_world_location_id = fixed_location["id"]
+            resolved_destination_name = fixed_location["name"]
+        else:
+            destination_x = _coerce_optional_coordinate(coordinate_x, "coordinate_x")
+            destination_y = _coerce_optional_coordinate(coordinate_y, "coordinate_y")
+            resolved_world_location_id = None
+            resolved_destination_name = destination_name
+
+            if destination_x is None or destination_y is None:
+                raise ValueError(
+                    "Generated map travel requires coordinate_x and coordinate_y, "
+                    "or a known world_location_id."
+                )
+
+        destination_context = resolve_coordinate_context(destination_x, destination_y)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+        }
+
+    travel_estimate = None
+    if start_world_location_id and resolved_world_location_id:
+        travel_estimate = estimate_travel_between_world_locations(
+            start_world_location_id,
+            resolved_world_location_id,
+            travel_mode=travel_mode,
+            terrain=terrain,
+        )
+
+    if travel_estimate is None:
+        travel_estimate = estimate_travel_between_coordinates(
+            start_coordinate_x,
+            start_coordinate_y,
+            destination_x,
+            destination_y,
+            travel_mode=travel_mode,
+            terrain=terrain,
+        )
+
+    distance_km = travel_estimate["distance_km"]
+    max_distance_km = (
+        MAX_DECLARED_LONG_TRAVEL_DISTANCE_KM
+        if allow_long_travel
+        else MAX_LOCAL_TRAVEL_DISTANCE_KM
+    )
+
+    if distance_km > max_distance_km:
+        return {
+            "success": False,
+            "error": (
+                f"Destination is too far for this move ({distance_km} km, "
+                f"max {max_distance_km} km)."
+            ),
+            "movement": {
+                "from_location_id": start_location_id,
+                "from_location_name": start_location_name,
+                "from_coordinate_x": start_coordinate_x,
+                "from_coordinate_y": start_coordinate_y,
+                "to_location_name": resolved_destination_name,
+                "to_coordinate_x": destination_x,
+                "to_coordinate_y": destination_y,
+                "distance_km": distance_km,
+                "estimated_minutes": travel_estimate["estimated_minutes"],
+                "travel_estimate": travel_estimate,
+                "max_distance_km": max_distance_km,
+                "travel_mode": travel_mode or "walk",
+                "requires_smaller_steps": True,
+            },
+        }
+
+    moved = update_location(
+        campaign_id=campaign_id,
+        location_name=resolved_destination_name,
+        location_type=location_type or ("fixed_world_location" if fixed_location else "map_area"),
+        description=description,
+        coordinate_x=destination_x,
+        coordinate_y=destination_y,
+        world_location_id=resolved_world_location_id,
+    )
+
+    if not moved.get("success"):
+        return moved
+
+    moved["tool"] = "move_to_coordinates"
+    moved["movement"] = {
+        "from_location_id": start_location_id,
+        "from_location_name": start_location_name,
+        "from_coordinate_x": start_coordinate_x,
+        "from_coordinate_y": start_coordinate_y,
+        "to_location_id": moved["location_id"],
+        "to_location_name": moved["location_name"],
+        "to_coordinate_x": destination_x,
+        "to_coordinate_y": destination_y,
+        "distance_km": distance_km,
+        "estimated_minutes": travel_estimate["estimated_minutes"],
+        "travel_estimate": travel_estimate,
+        "max_distance_km": max_distance_km,
+        "travel_mode": travel_mode or "walk",
+        "allow_long_travel": bool(allow_long_travel),
+        "destination_region_id": destination_context.get("region_id"),
+        "destination_region_name": destination_context.get("region_name"),
+        "destination_subregion": destination_context.get("subregion"),
+    }
+    return moved
 
 
 def advance_time(campaign_id: int, minutes: int):
@@ -274,6 +615,11 @@ def _serialize_quest_record(quest):
         "start_location_id": quest.start_location_id,
         "target_location_id": quest.target_location_id,
         "turn_in_location_id": quest.turn_in_location_id,
+        "location_refs": {
+            "start": _serialize_quest_location_reference(quest.start_location_id),
+            "target": _serialize_quest_location_reference(quest.target_location_id),
+            "turn_in": _serialize_quest_location_reference(quest.turn_in_location_id),
+        },
         "objectives": _load_json_payload(quest.objectives_json, []),
         "rewards": _load_json_payload(quest.rewards_json, {}),
         "reward_rules": _load_json_payload(quest.reward_rules_json, {}),
@@ -1192,7 +1538,7 @@ STATE_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_location",
-            "description": "Update the character's current location when they move to a different place.",
+            "description": "Update the character's current location for local movement, rooms, shops, cellars, streets or already validated locations.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1207,9 +1553,73 @@ STATE_TOOL_DEFINITIONS = [
                     "description": {
                         "type": "string",
                         "description": "Optional short description of the location."
+                    },
+                    "world_location_id": {
+                        "type": "string",
+                        "description": "Optional fixed Avalion world location id when moving to a known map location."
+                    },
+                    "coordinate_x": {
+                        "type": "number",
+                        "description": "Optional Avalion map X coordinate. Use only when the coordinate is known. The backend stores up to 3 decimal places."
+                    },
+                    "coordinate_y": {
+                        "type": "number",
+                        "description": "Optional Avalion map Y coordinate. Use only together with coordinate_x when the coordinate is known. The backend stores up to 3 decimal places."
                     }
                 },
                 "required": ["location_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_to_coordinates",
+            "description": (
+                "Move the character across the Avalion map to a known world location or explicit "
+                "map coordinates. This validates distance from the current coordinate before changing location."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "destination_name": {
+                        "type": "string",
+                        "description": "Destination name shown to the player."
+                    },
+                    "world_location_id": {
+                        "type": "string",
+                        "description": "Optional fixed Avalion world location id, preferred for known cities and landmarks."
+                    },
+                    "coordinate_x": {
+                        "type": "number",
+                        "description": "Optional destination X coordinate for generated map places. The backend stores up to 3 decimal places."
+                    },
+                    "coordinate_y": {
+                        "type": "number",
+                        "description": "Optional destination Y coordinate for generated map places. Required with coordinate_x. The backend stores up to 3 decimal places."
+                    },
+                    "location_type": {
+                        "type": "string",
+                        "description": "Destination type, for example road, wilderness, city, camp, pass or ruin."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional short description of the destination."
+                    },
+                    "travel_mode": {
+                        "type": "string",
+                        "description": "Travel mode such as walk, ride, cart, ship, airship, flight or teleportation."
+                    },
+                    "terrain": {
+                        "type": "string",
+                        "description": "Optional terrain hint for generated routes, such as road, plains, forest, swamp, mountain, waste, canyon, coast, sea, urban or wilderness."
+                    },
+                    "allow_long_travel": {
+                        "type": "boolean",
+                        "description": "Set true only when the player explicitly commits to a long overland or special transport journey."
+                    }
+                },
+                "required": ["destination_name"]
             }
         }
     },
@@ -1380,7 +1790,24 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
             campaign_id=campaign_id,
             location_name=arguments.get("location_name", ""),
             location_type=arguments.get("location_type"),
-            description=arguments.get("description")
+            description=arguments.get("description"),
+            coordinate_x=arguments.get("coordinate_x"),
+            coordinate_y=arguments.get("coordinate_y"),
+            world_location_id=arguments.get("world_location_id"),
+        )
+
+    if tool_name == "move_to_coordinates":
+        return move_to_coordinates(
+            campaign_id=campaign_id,
+            destination_name=arguments.get("destination_name", ""),
+            coordinate_x=arguments.get("coordinate_x"),
+            coordinate_y=arguments.get("coordinate_y"),
+            world_location_id=arguments.get("world_location_id"),
+            location_type=arguments.get("location_type"),
+            description=arguments.get("description"),
+            travel_mode=arguments.get("travel_mode", "walk"),
+            terrain=arguments.get("terrain"),
+            allow_long_travel=arguments.get("allow_long_travel", False),
         )
 
     if tool_name == "advance_time":

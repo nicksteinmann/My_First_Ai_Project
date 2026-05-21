@@ -92,6 +92,27 @@ def _is_location_relevant_quest(quest: dict, current_location_id) -> bool:
     return False
 
 
+def _format_location_ref(label: str, location_ref: dict | None) -> str | None:
+    """Return a compact quest location context line for the prompt."""
+
+    if not location_ref:
+        return None
+
+    context = location_ref.get("location_context", location_ref) or {}
+    coordinate_x = context.get("coordinate_x")
+    coordinate_y = context.get("coordinate_y")
+    coordinate_text = (
+        f"{coordinate_x}, {coordinate_y}"
+        if coordinate_x is not None and coordinate_y is not None
+        else "unknown"
+    )
+    region = context.get("region_name") or "unknown region"
+    subregion = context.get("subregion") or "unknown subregion"
+    name = location_ref.get("name") or "unknown location"
+
+    return f"  {label}: {name} ({region} / {subregion}, coords: {coordinate_text})"
+
+
 def _build_visible_quest_context(active_character: dict, latest_user_input: str) -> str:
     """Return compact and relevant multi-quest context for the prompt."""
 
@@ -129,6 +150,15 @@ def _build_visible_quest_context(active_character: dict, latest_user_input: str)
                 relevant_lines.append(f"  Target location id: {quest['target_location_id']}")
             if quest.get("turn_in_location_id") is not None:
                 relevant_lines.append(f"  Turn-in location id: {quest['turn_in_location_id']}")
+            location_refs = quest.get("location_refs", {}) or {}
+            for label, ref_key in (
+                ("Start location", "start"),
+                ("Target location", "target"),
+                ("Turn-in location", "turn_in"),
+            ):
+                location_line = _format_location_ref(label, location_refs.get(ref_key))
+                if location_line:
+                    relevant_lines.append(location_line)
             if quest.get("quest_giver_npc_id") is not None:
                 relevant_lines.append(f"  Quest giver npc id: {quest['quest_giver_npc_id']}")
             if quest.get("turn_in_npc_id") is not None:
@@ -149,6 +179,15 @@ def build_game_system_prompt(active_character, latest_user_input: str = ""):
     """Build the system prompt for one gameplay turn."""
 
     quest_context_block = _build_visible_quest_context(active_character, latest_user_input)
+    current_state = active_character.get("current_state", {}) or {}
+    location_context = current_state.get("location_context", {}) or {}
+    coordinate_x = location_context.get("coordinate_x")
+    coordinate_y = location_context.get("coordinate_y")
+    coordinate_label = (
+        f"{coordinate_x}, {coordinate_y}"
+        if coordinate_x is not None and coordinate_y is not None
+        else "Unknown"
+    )
 
     return f"""
 You are the Game Master of a fantasy text-based RPG.
@@ -163,6 +202,9 @@ Active Character:
 - Status: {active_character['status']}
 - Location: {active_character['current_state']['location']}
 - Current Location ID: {active_character['current_state'].get('current_location_id')}
+- Region: {location_context.get('region_name') or 'Unknown'}
+- Subregion: {location_context.get('subregion') or 'Unknown'}
+- Map Coordinates: {coordinate_label} (1 coordinate unit = {location_context.get('scale_km_per_unit') or 10} km)
 - Time of Day: {active_character['current_state']['time_of_day']}
 - Quest System: Multi-quest list below. Use explicit quest IDs from Visible Quests.
 - Equipment: {active_character.get('equipment_summary', 'None')}
@@ -205,6 +247,16 @@ Tool Usage:
 State Changes:
 - Use state tools for location, time, or quest updates.
     - When the player moves into a distinct room, shop, cellar, street, camp, or other place, call update_location in the same response as the arrival.
+    - Use update_location for local movement inside the current map position, such as rooms, shops, cellars, streets, tavern tables, market stalls, and nearby interiors.
+    - Use move_to_coordinates for overland/map movement where the character travels to another city, landmark, wilderness point, road segment, camp, ruin, pass, coast, or generated outdoor destination with its own coordinates.
+    - move_to_coordinates validates distance from the backend's current coordinates and returns backend-estimated travel minutes. Do not invent travel duration yourself.
+    - If move_to_coordinates returns success=false because the target is too far, do not narrate arrival; offer smaller travel steps, transport, or a longer declared journey.
+    - For known Avalion map cities/landmarks, include world_location_id or the exact fixed name so the backend can attach the correct coordinates.
+    - For local sublocations inside the current place, such as a rented room, cellar, shop, or tavern table, omit coordinates unless they are truly known; the backend will inherit the current map position.
+    - For important generated places outside the current place, include coordinate_x and coordinate_y in move_to_coordinates when you can place them on the Avalion map. One coordinate unit is about 10 km. Use at most 3 decimal places; that is roughly 10 meter precision.
+    - For ordinary local jobs, keep generated destinations in the same city, same subregion, or a plausible nearby area. Do not send the player tens or hundreds of kilometers for small chores unless it is explicitly a travel quest.
+    - For normal walking/riding travel, prefer destinations within about 80 km in one move. Use allow_long_travel only when the player explicitly commits to a longer journey or special transport.
+    - For generated routes, include a terrain hint when it is obvious, such as road, plains, forest, swamp, mountain, waste, canyon, coast, sea, urban, or wilderness.
     - When an NPC offers a concrete job, quest, delivery, mission, or paid task and the player accepts it, you MUST call create_quest in that same response before narrating that the quest is accepted.
     - Paid chores such as sorting a cellar, cleaning a stable, carrying crates, killing rats, deliveries, patrols, errands, and similar NPC work are structured quests when accepted.
     - When a quest giver hands over a quest item such as a letter, package, token, contract, proof, or delivery object, you MUST call the appropriate inventory tool in that same response.

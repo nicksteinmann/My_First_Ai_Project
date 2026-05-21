@@ -7,12 +7,13 @@ state, not invent gameplay state.
 
 import json
 
+from models import CampaignLocation
 from services.attributes import serialize_attributes
 from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression, serialize_level_renown
-from services.skills import serialize_character_skills
 from services.status_effects import serialize_status_effects
+from services.world_data import get_coordinate_system, normalize_coordinate
 
 SIZE_ABBREVIATIONS = {
     "tiny": "XS",
@@ -337,6 +338,30 @@ def _build_quest_tooltip(quest, objectives, rewards):
     return "\n".join(lines)
 
 
+def _serialize_location_reference(location_id):
+    """Return location details for quest context without duplicating quest truth."""
+
+    if location_id is None:
+        return None
+
+    location = CampaignLocation.query.get(location_id)
+    if not location:
+        return None
+
+    return {
+        "id": location.id,
+        "name": location.name,
+        "location_type": location.location_type,
+        "coordinate_x": normalize_coordinate(location.coordinate_x) if location.coordinate_x is not None else None,
+        "coordinate_y": normalize_coordinate(location.coordinate_y) if location.coordinate_y is not None else None,
+        "region_id": location.region_id,
+        "region_name": location.region_name,
+        "subregion": location.subregion,
+        "world_location_id": location.world_location_id,
+        "world_location_name": location.world_location_name,
+    }
+
+
 def _quest_display_status(quest):
     """Return the player-facing quest label for one visible quest."""
 
@@ -382,6 +407,11 @@ def _serialize_visible_quests(campaign):
             "start_location_id": quest.start_location_id,
             "turn_in_location_id": quest.turn_in_location_id,
             "target_location_id": quest.target_location_id,
+            "location_refs": {
+                "start": _serialize_location_reference(quest.start_location_id),
+                "target": _serialize_location_reference(quest.target_location_id),
+                "turn_in": _serialize_location_reference(quest.turn_in_location_id),
+            },
             "reward_claimed_at": quest.reward_claimed_at.isoformat() if quest.reward_claimed_at else None,
             "tooltip": _build_quest_tooltip(quest, objectives, rewards),
             "sort_order": sort_order.get(quest.status, 99),
@@ -403,6 +433,32 @@ def get_visible_campaign_quest_summary(campaign):
         return visible_quests[0]["display"]
 
     return f"{len(visible_quests)} quests"
+
+
+def _serialize_current_location_context(current_location):
+    """Return map coordinates and region context for the active location."""
+
+    coordinate_system = get_coordinate_system()
+
+    return {
+        "coordinate_x": (
+            normalize_coordinate(current_location.coordinate_x)
+            if current_location and current_location.coordinate_x is not None
+            else None
+        ),
+        "coordinate_y": (
+            normalize_coordinate(current_location.coordinate_y)
+            if current_location and current_location.coordinate_y is not None
+            else None
+        ),
+        "coordinate_source": current_location.coordinate_source if current_location else None,
+        "region_id": current_location.region_id if current_location else None,
+        "region_name": current_location.region_name if current_location else None,
+        "subregion": current_location.subregion if current_location else None,
+        "world_location_id": current_location.world_location_id if current_location else None,
+        "world_location_name": current_location.world_location_name if current_location else None,
+        "scale_km_per_unit": coordinate_system.get("scale_km_per_unit"),
+    }
 
 
 def serialize_character(
@@ -436,6 +492,8 @@ def serialize_character(
         f"{attribute['label']} {attribute['level']}"
         for attribute in serialized_attributes
     ) if serialized_attributes else "None"
+
+    location_context = _serialize_current_location_context(current_location)
 
     return {
         "id": character.id,
@@ -472,6 +530,12 @@ def serialize_character(
         "current_state": {
             "location": current_location.name if current_location else "Unknown",
             "current_location_id": current_location.id if current_location else None,
+            "location_context": location_context,
+            "region_id": location_context["region_id"],
+            "region_name": location_context["region_name"],
+            "subregion": location_context["subregion"],
+            "coordinate_x": location_context["coordinate_x"],
+            "coordinate_y": location_context["coordinate_y"],
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
             "quest_summary": get_visible_campaign_quest_summary(campaign),
             "visible_quests": visible_quests,

@@ -25,6 +25,91 @@ from services.serializers.character_serializer import (
 from services.currency.service import add_currency
 from services.leveling import serialize_level_progression
 from services.skills import serialize_character_skills
+from services.world_data import build_location_context_from_world_location, find_world_location
+
+
+RACE_START_LOCATIONS = {
+    "Human": {
+        "world_location_id": "crownford",
+        "location_name": "Crownford - Rented Room",
+        "location_type": "inn_room",
+        "description": "A tiny rented room in Crownford, close to the busy roads of the human heartland.",
+        "main_objective": "Begin your journey in Crownford.",
+        "scene_summary": (
+            "You wake up in a cheap rented room in Crownford after arriving late the night before. "
+            "You are dressed in simple travel clothes with two belt pouches, a backpack, "
+            "and a wooden club in hand."
+        ),
+        "world_summary": (
+            "Crownford is the human capital and a strong starting point for roads, markets, "
+            "simple work, and safer early quests."
+        ),
+    },
+    "Elf": {
+        "world_location_id": "lythariel",
+        "location_name": "Lythariel - Guest Bower",
+        "location_type": "guest_room",
+        "description": "A quiet guest bower woven into the living branches of Lythariel.",
+        "main_objective": "Begin your journey in Lythariel.",
+        "scene_summary": (
+            "You wake in a quiet guest bower in Lythariel, surrounded by silver leaves, "
+            "soft morning light, and the sound of hidden forest paths beyond the city."
+        ),
+        "world_summary": (
+            "Lythariel is the elven capital in Silverwood, where forest paths, old magic, "
+            "and guarded glades shape early travel."
+        ),
+    },
+    "Dwarf": {
+        "world_location_id": "stonewatch",
+        "location_name": "Stonewatch - Travelers' Bunk",
+        "location_type": "bunk_room",
+        "description": "A sturdy stone bunk room inside Stonewatch, warm with forge heat and mountain air.",
+        "main_objective": "Begin your journey in Stonewatch.",
+        "scene_summary": (
+            "You wake in a travelers' bunk in Stonewatch, where stone corridors echo with boots, "
+            "hammers, and the low rumble of the mountain roads."
+        ),
+        "world_summary": (
+            "Stonewatch is the dwarven capital in the Stoneward Peaks, built around fortress roads, "
+            "craft halls, and slower mountain travel."
+        ),
+    },
+    "Orc": {
+        "world_location_id": "kragmor",
+        "location_name": "Kragmor - Clan Rest Hall",
+        "location_type": "rest_hall",
+        "description": "A rough rest hall in Kragmor, with hides, smoke, and heavy wooden beams.",
+        "main_objective": "Begin your journey in Kragmor.",
+        "scene_summary": (
+            "You wake in a rough rest hall in Kragmor, the air thick with smoke, iron, "
+            "and the distant noise of clan life in the Grimscar Wastes."
+        ),
+        "world_summary": (
+            "Kragmor is the orc capital in the Grimscar Wastes, surrounded by hard country, "
+            "strongholds, clan politics, and dangerous open routes."
+        ),
+    },
+    "Goblin": {
+        "world_location_id": "jagged_harbor",
+        "location_name": "Jagged Harbor - Dockside Loft",
+        "location_type": "dockside_room",
+        "description": "A cramped dockside loft above cranes, ropes, scrap stalls, and crooked piers.",
+        "main_objective": "Begin your journey in Jagged Harbor.",
+        "scene_summary": (
+            "You wake in a cramped dockside loft in Jagged Harbor, with gull cries, creaking cranes, "
+            "and the smell of salt and machine oil below."
+        ),
+        "world_summary": (
+            "Jagged Harbor is the goblin capital port of the Shard Isles. Leaving the islands "
+            "requires a valid crossing method such as ship, airship, flight, or teleportation."
+        ),
+    },
+}
+
+
+def _get_race_start_location(race: str) -> dict:
+    return RACE_START_LOCATIONS.get(race, RACE_START_LOCATIONS["Human"])
 
 
 def register_character_routes(
@@ -220,15 +305,20 @@ def register_character_routes(
             db.session.add(new_campaign)
             db.session.commit()
 
+            race_start = _get_race_start_location(race)
+            race_start_world_location = find_world_location(race_start["world_location_id"])
+            race_start_context = build_location_context_from_world_location(
+                race_start_world_location,
+                source="starter_location",
+            )
             start_location = CampaignLocation(
                 campaign_id=new_campaign.id,
-                name="The Screeching Rat - Rented Room",
-                location_type="inn_room",
-                description=(
-                    "A tiny, cheap rented room with a straw bed, a chair, and your few belongings."
-                ),
+                name=race_start["location_name"],
+                location_type=race_start["location_type"],
+                description=race_start["description"],
                 is_discovered=True,
-                is_custom=False
+                is_custom=False,
+                **race_start_context,
             )
             db.session.add(start_location)
             db.session.flush()
@@ -238,16 +328,9 @@ def register_character_routes(
 
             start_state = CampaignState(
                 campaign_id=new_campaign.id,
-                main_objective="Begin your journey in the capital.",
-                current_scene_summary=(
-                    "You wake up in a cheap rented room at the tavern called "
-                    "'The Screeching Rat' after arriving late in the capital. "
-                    "You are dressed in simple travel clothes with two belt pouches, a backpack, "
-                    "and a wooden club in hand."
-                ),
-                world_state_summary=(
-                    "The capital is a magically protected neutral city where open violence is impossible."
-                ),
+                main_objective=race_start["main_objective"],
+                current_scene_summary=race_start["scene_summary"],
+                world_state_summary=race_start["world_summary"],
                 last_session_summary=(
                     "You arrived late at night, rented the cheapest bed available, and fell asleep exhausted."
                 ),

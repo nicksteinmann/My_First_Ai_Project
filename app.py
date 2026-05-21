@@ -123,6 +123,23 @@ def ensure_sqlite_schema_compatibility() -> None:
         if column_name not in quest_column_names:
             db.session.execute(text(statement))
 
+    location_columns = db.session.execute(text("PRAGMA table_info(campaign_locations)")).fetchall()
+    location_column_names = {column[1] for column in location_columns}
+    location_column_statements = {
+        "coordinate_x": "ALTER TABLE campaign_locations ADD COLUMN coordinate_x REAL",
+        "coordinate_y": "ALTER TABLE campaign_locations ADD COLUMN coordinate_y REAL",
+        "coordinate_source": "ALTER TABLE campaign_locations ADD COLUMN coordinate_source VARCHAR(40)",
+        "region_id": "ALTER TABLE campaign_locations ADD COLUMN region_id VARCHAR(80)",
+        "region_name": "ALTER TABLE campaign_locations ADD COLUMN region_name VARCHAR(120)",
+        "subregion": "ALTER TABLE campaign_locations ADD COLUMN subregion VARCHAR(120)",
+        "world_location_id": "ALTER TABLE campaign_locations ADD COLUMN world_location_id VARCHAR(80)",
+        "world_location_name": "ALTER TABLE campaign_locations ADD COLUMN world_location_name VARCHAR(120)",
+    }
+
+    for column_name, statement in location_column_statements.items():
+        if column_name not in location_column_names:
+            db.session.execute(text(statement))
+
     db.session.commit()
 
 
