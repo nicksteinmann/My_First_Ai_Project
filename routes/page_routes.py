@@ -14,6 +14,7 @@ from services.serializers.character_serializer import (
     get_character_status_effects,
     get_visible_campaign_quest_summary,
 )
+from services.world_data import load_world_data
 
 
 def register_page_routes(
@@ -60,21 +61,7 @@ def register_page_routes(
 
     @app.route("/world")
     def world():
-        world_data = {
-            "name": "Avalion",
-            "era": "Fantasy Middle Ages",
-            "year": 1000,
-            "summary": (
-                "Avalion is a placeholder fantasy world used for development and testing. "
-                "This page will later contain lore, kingdoms, factions, important NPCs, and world history."
-            ),
-            "locations": [
-                "Ravenhold",
-                "Greywood",
-                "Ironhill",
-                "The Old King's Road"
-            ]
-        }
+        world_data = load_world_data()
 
         return render_template(
             "world.html",
