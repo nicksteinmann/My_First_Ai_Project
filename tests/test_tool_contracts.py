@@ -20,6 +20,7 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
         expected = {
             "state": [
                 "update_location",
+                "move_to_coordinates",
                 "advance_time",
                 "create_quest",
                 "validate_quest_progress",
