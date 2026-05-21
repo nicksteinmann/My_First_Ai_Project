@@ -8,6 +8,16 @@ from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATE
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item, get_inventory, remove_inventory_item
 from services.leveling.service import add_xp
+from services.timekeeping import (
+    DEFAULT_INGAME_MINUTE,
+    MINUTES_PER_DAY,
+    TIME_ORDER,
+    calendar_date_for_day,
+    minute_for_time_label,
+    normalize_ingame_minute,
+    normalize_time_label,
+    time_label_for_minute,
+)
 from services.world_data import (
     build_location_context_from_world_location,
     distance_km_between_coordinates,
@@ -19,7 +29,6 @@ from services.world_data import (
 )
 
 
-TIME_ORDER = ["late night", "early morning", "morning", "noon", "afternoon", "evening", "night", "midnight"]
 QUEST_TYPE_REWARD_MULTIPLIERS = {
     "tutorial": 0.4,
     "general": 1.0,
@@ -83,38 +92,138 @@ LOCATION_CONTEXT_FIELDS = (
 )
 MAX_LOCAL_TRAVEL_DISTANCE_KM = 80
 MAX_DECLARED_LONG_TRAVEL_DISTANCE_KM = 500
+ACTION_TIME_RULES = {
+    "conversation": {"default": 0, "min": 0, "max": 1},
+    "short_exchange": {"default": 0, "min": 0, "max": 1},
+    "local_move": {"default": 1, "min": 0, "max": 2},
+    "quick_look": {"default": 1, "min": 0, "max": 2},
+    "quick_search": {"default": 2, "min": 1, "max": 5},
+    "look_around": {"default": 2, "min": 1, "max": 5},
+    "thorough_search": {"default": 10, "min": 5, "max": 10},
+    "drink": {"default": 1, "min": 0, "max": 2},
+    "meal": {"default": 12, "min": 10, "max": 15},
+    "inn_meal": {"default": 15, "min": 10, "max": 15},
+    "shopping": {"default": 5, "min": 1, "max": 5},
+    "trade": {"default": 5, "min": 1, "max": 5},
+    "chore": {"default": 60, "min": 30, "max": 120},
+    "paid_work": {"default": 60, "min": 30, "max": 120},
+    "lesson": {"default": 60, "min": 60, "max": 60},
+    "teacher_training": {"default": 60, "min": 60, "max": 60},
+    "self_training": {"default": 15, "min": 5, "max": 60},
+    "crafting_quick": {"default": 10, "min": 5, "max": 30},
+    "repair_quick": {"default": 10, "min": 5, "max": 30},
+    "crafting": {"default": 60, "min": 5, "max": 120},
+    "repair": {"default": 30, "min": 5, "max": 120},
+    "combat": {"default": 3, "min": 1, "max": 5},
+    "wait": {"default": 15, "min": 1, "max": 1440},
+}
+
+REST_TIME_RULES = {
+    "short": 30,
+    "short_rest": 30,
+    "long": 8 * 60,
+    "long_rest": 8 * 60,
+}
 
 
 def _normalize_time_label(value: str) -> str:
     """Normalize time labels to the current coarse MVP time scale."""
 
-    if not value:
-        return "morning"
-
-    value = value.strip().lower()
-    if value in TIME_ORDER:
-        return value
-
-    return "morning"
+    return normalize_time_label(value)
 
 
-def _advance_time_label(current_label: str, minutes: int) -> str:
-    """Advance coarse time labels in rough three-hour chunks."""
+def _normalize_ingame_minute(value) -> int:
+    """Normalize an exact in-game minute into the current day."""
 
-    current_label = _normalize_time_label(current_label)
+    return normalize_ingame_minute(value)
 
-    if minutes <= 0:
-        return current_label
 
-    current_index = TIME_ORDER.index(current_label)
+def _time_label_for_minute(minute: int) -> str:
+    """Return the coarse fantasy time label for an exact minute."""
 
-    # MVP time logic: every started 180-minute block advances one phase.
-    steps = minutes // 180
-    if minutes % 180 != 0:
-        steps += 1
+    return time_label_for_minute(minute)
 
-    new_index = min(current_index + steps, len(TIME_ORDER) - 1)
-    return TIME_ORDER[new_index]
+
+def _minute_for_time_label(label: str) -> int:
+    """Return a stable representative minute for a coarse time label."""
+
+    return minute_for_time_label(label)
+
+
+def _campaign_current_minute(campaign: Campaign) -> int:
+    """Return exact campaign minute, falling back to the old label when needed."""
+
+    minute = getattr(campaign, "current_ingame_minute", None)
+    if minute is None:
+        return _minute_for_time_label(campaign.current_ingame_time)
+
+    return _normalize_ingame_minute(minute)
+
+
+def _apply_campaign_time(campaign: Campaign, day: int, minute: int) -> None:
+    """Persist exact and display campaign time fields together."""
+
+    campaign.current_ingame_day = max(1, int(day))
+    campaign.current_ingame_minute = _normalize_ingame_minute(minute)
+    campaign.current_ingame_time = _time_label_for_minute(campaign.current_ingame_minute)
+
+
+def _advance_campaign_time(campaign: Campaign, minutes: int) -> dict:
+    """Advance exact campaign time and return before/after labels."""
+
+    old_day = int(campaign.current_ingame_day or 1)
+    old_minute = _campaign_current_minute(campaign)
+    old_time = _time_label_for_minute(old_minute)
+    total_minutes = old_minute + int(minutes)
+    day_delta, new_minute = divmod(total_minutes, MINUTES_PER_DAY)
+    new_day = old_day + day_delta
+
+    _apply_campaign_time(campaign, new_day, new_minute)
+
+    return {
+        "old_day": old_day,
+        "new_day": new_day,
+        "old_minute": old_minute,
+        "new_minute": new_minute,
+        "old_time": old_time,
+        "new_time": campaign.current_ingame_time,
+        "minutes_advanced": int(minutes),
+        "old_calendar": calendar_date_for_day(old_day),
+        "new_calendar": calendar_date_for_day(new_day),
+    }
+
+
+def _resolve_action_minutes(action_type: str, minutes=None) -> tuple[str, int, dict]:
+    """Resolve or clamp action time according to backend action defaults."""
+
+    normalized_action_type = str(action_type or "").strip().lower()
+    if normalized_action_type not in ACTION_TIME_RULES:
+        raise ValueError(f"Unsupported action_type: {action_type}")
+
+    rule = ACTION_TIME_RULES[normalized_action_type]
+    if minutes in (None, ""):
+        resolved_minutes = int(rule["default"])
+    else:
+        try:
+            resolved_minutes = int(minutes)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Minutes must be an integer.") from exc
+
+        resolved_minutes = max(int(rule["min"]), min(int(rule["max"]), resolved_minutes))
+
+    return normalized_action_type, resolved_minutes, rule
+
+
+def _minutes_until_morning(campaign: Campaign) -> int:
+    """Return minutes until the next morning phase starts."""
+
+    current_minute = _campaign_current_minute(campaign)
+    morning_minute = minute_for_time_label("morning")
+
+    if current_minute < morning_minute:
+        return morning_minute - current_minute
+
+    return MINUTES_PER_DAY - current_minute + morning_minute
 
 
 def _coerce_optional_coordinate(value, field_name: str):
@@ -512,6 +621,9 @@ def move_to_coordinates(
     if not moved.get("success"):
         return moved
 
+    time_change = _advance_campaign_time(campaign, travel_estimate["estimated_minutes"])
+    db.session.commit()
+
     moved["tool"] = "move_to_coordinates"
     moved["movement"] = {
         "from_location_id": start_location_id,
@@ -532,11 +644,12 @@ def move_to_coordinates(
         "destination_region_name": destination_context.get("region_name"),
         "destination_subregion": destination_context.get("subregion"),
     }
+    moved["time"] = time_change
     return moved
 
 
 def advance_time(campaign_id: int, minutes: int):
-    """Advance the active campaign's coarse time label."""
+    """Advance the active campaign's exact in-game clock."""
 
     campaign = db.session.get(Campaign, campaign_id)
     if not campaign:
@@ -553,18 +666,88 @@ def advance_time(campaign_id: int, minutes: int):
             "error": "Minutes must be an integer."
         }
 
-    old_time = _normalize_time_label(campaign.current_ingame_time)
-    new_time = _advance_time_label(old_time, minutes)
+    if minutes < 0:
+        return {
+            "success": False,
+            "error": "Minutes must be zero or greater."
+        }
 
-    campaign.current_ingame_time = new_time
+    time_change = _advance_campaign_time(campaign, minutes)
     db.session.commit()
 
     return {
         "success": True,
         "tool": "advance_time",
-        "old_time": old_time,
-        "new_time": new_time,
-        "minutes_advanced": minutes
+        **time_change,
+    }
+
+
+def spend_time(campaign_id: int, action_type: str, minutes=None, description: str = None):
+    """Spend backend-controlled time for a normal non-travel action."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {
+            "success": False,
+            "error": "Campaign not found."
+        }
+
+    try:
+        action_type, resolved_minutes, rule = _resolve_action_minutes(action_type, minutes)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "supported_action_types": sorted(ACTION_TIME_RULES),
+        }
+
+    time_change = _advance_campaign_time(campaign, resolved_minutes)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "spend_time",
+        "action_type": action_type,
+        "description": description,
+        "time_rule": {
+            "default_minutes": rule["default"],
+            "min_minutes": rule["min"],
+            "max_minutes": rule["max"],
+        },
+        **time_change,
+    }
+
+
+def rest(campaign_id: int, rest_type: str = "short"):
+    """Rest or sleep using backend-controlled time costs."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {
+            "success": False,
+            "error": "Campaign not found."
+        }
+
+    normalized_rest_type = str(rest_type or "short").strip().lower()
+    if normalized_rest_type == "sleep_until_morning":
+        minutes = _minutes_until_morning(campaign)
+    elif normalized_rest_type in REST_TIME_RULES:
+        minutes = REST_TIME_RULES[normalized_rest_type]
+    else:
+        return {
+            "success": False,
+            "error": f"Unsupported rest_type: {rest_type}",
+            "supported_rest_types": sorted([*REST_TIME_RULES, "sleep_until_morning"]),
+        }
+
+    time_change = _advance_campaign_time(campaign, minutes)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "rest",
+        "rest_type": normalized_rest_type,
+        **time_change,
     }
 
 
@@ -1643,6 +1826,56 @@ STATE_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "spend_time",
+            "description": (
+                "Spend backend-controlled time for normal non-travel actions such as quick search, "
+                "thorough search, meal, shopping, chore, lesson, self-training, crafting, combat or waiting."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action_type": {
+                        "type": "string",
+                        "description": (
+                            "One of: conversation, short_exchange, local_move, quick_look, quick_search, "
+                            "look_around, thorough_search, drink, meal, inn_meal, shopping, trade, chore, "
+                            "paid_work, lesson, teacher_training, self_training, crafting_quick, repair_quick, "
+                            "crafting, repair, combat, wait."
+                        )
+                    },
+                    "minutes": {
+                        "type": "integer",
+                        "description": "Optional requested minutes. Backend clamps this to the allowed range for the action type."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional short description of what consumed time."
+                    }
+                },
+                "required": ["action_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rest",
+            "description": "Spend time resting or sleeping. This currently advances time only; resource recovery is a later feature.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rest_type": {
+                        "type": "string",
+                        "description": "Rest type: short, short_rest, long, long_rest, or sleep_until_morning."
+                    }
+                },
+                "required": ["rest_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_quest",
             "description": "Create a structured quest in the current campaign.",
             "parameters": {
@@ -1814,6 +2047,20 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
         return advance_time(
             campaign_id=campaign_id,
             minutes=arguments.get("minutes", 0)
+        )
+
+    if tool_name == "spend_time":
+        return spend_time(
+            campaign_id=campaign_id,
+            action_type=arguments.get("action_type", ""),
+            minutes=arguments.get("minutes"),
+            description=arguments.get("description"),
+        )
+
+    if tool_name == "rest":
+        return rest(
+            campaign_id=campaign_id,
+            rest_type=arguments.get("rest_type", "short"),
         )
 
     if tool_name == "create_quest":

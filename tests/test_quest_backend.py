@@ -18,6 +18,8 @@ from services.adventure_state.tools import (
     create_quest,
     get_quest_details,
     move_to_coordinates,
+    rest,
+    spend_time,
     turn_in_quest,
     update_location,
     update_quest_objective_progress,
@@ -177,6 +179,10 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertTrue(advanced["success"], advanced)
         self.assertEqual("morning", advanced["old_time"])
         self.assertEqual("noon", advanced["new_time"])
+        self.assertEqual(540, advanced["old_minute"])
+        self.assertEqual(720, advanced["new_minute"])
+        self.assertEqual(1, advanced["old_day"])
+        self.assertEqual(1, advanced["new_day"])
 
         quest_result = create_quest(
             campaign_id=self.campaign.id,
@@ -219,6 +225,67 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertTrue(progress["success"], progress)
         self.assertEqual("completed", progress["quest"]["status"])
         self.assertTrue(progress["quest"]["objectives"][0]["is_completed"])
+
+    def test_advance_time_uses_exact_minutes_and_rolls_days(self):
+        self.campaign.current_ingame_day = 1
+        self.campaign.current_ingame_minute = 23 * 60
+        self.campaign.current_ingame_time = "night"
+        db.session.commit()
+
+        advanced = advance_time(campaign_id=self.campaign.id, minutes=180)
+
+        self.assertTrue(advanced["success"], advanced)
+        self.assertEqual(1, advanced["old_day"])
+        self.assertEqual(2, advanced["new_day"])
+        self.assertEqual(1380, advanced["old_minute"])
+        self.assertEqual(120, advanced["new_minute"])
+        self.assertEqual("night", advanced["old_time"])
+        self.assertEqual("midnight", advanced["new_time"])
+        self.assertEqual(1143, advanced["old_calendar"]["year"])
+        self.assertEqual("Suncrest", advanced["old_calendar"]["month_name"])
+        self.assertEqual(12, advanced["old_calendar"]["day_of_month"])
+        self.assertEqual(1143, advanced["new_calendar"]["year"])
+        self.assertEqual("Suncrest", advanced["new_calendar"]["month_name"])
+        self.assertEqual(13, advanced["new_calendar"]["day_of_month"])
+
+    def test_spend_time_uses_backend_action_defaults_and_clamps_minutes(self):
+        quick_search = spend_time(
+            campaign_id=self.campaign.id,
+            action_type="quick_search",
+        )
+        self.assertTrue(quick_search["success"], quick_search)
+        self.assertEqual(2, quick_search["minutes_advanced"])
+
+        shopping = spend_time(
+            campaign_id=self.campaign.id,
+            action_type="shopping",
+            minutes=30,
+        )
+        self.assertTrue(shopping["success"], shopping)
+        self.assertEqual(5, shopping["minutes_advanced"])
+
+        conversation = spend_time(
+            campaign_id=self.campaign.id,
+            action_type="conversation",
+        )
+        self.assertTrue(conversation["success"], conversation)
+        self.assertEqual(0, conversation["minutes_advanced"])
+
+    def test_rest_advances_short_rest_and_sleep_until_morning(self):
+        short_rest = rest(campaign_id=self.campaign.id, rest_type="short")
+        self.assertTrue(short_rest["success"], short_rest)
+        self.assertEqual(30, short_rest["minutes_advanced"])
+
+        self.campaign.current_ingame_day = 1
+        self.campaign.current_ingame_minute = 20 * 60
+        self.campaign.current_ingame_time = "night"
+        db.session.commit()
+
+        sleep = rest(campaign_id=self.campaign.id, rest_type="sleep_until_morning")
+        self.assertTrue(sleep["success"], sleep)
+        self.assertEqual(13 * 60, sleep["minutes_advanced"])
+        self.assertEqual(2, sleep["new_day"])
+        self.assertEqual("morning", sleep["new_time"])
 
     def test_update_location_resolves_world_coordinates_and_inherits_local_context(self):
         moved = update_location(
@@ -334,6 +401,10 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertTrue(moved["success"], moved)
         self.assertEqual(74.0, moved["movement"]["distance_km"])
         self.assertEqual(799, moved["movement"]["estimated_minutes"])
+        self.assertEqual(1, moved["time"]["old_day"])
+        self.assertEqual(1, moved["time"]["new_day"])
+        self.assertEqual("morning", moved["time"]["old_time"])
+        self.assertEqual("night", moved["time"]["new_time"])
         self.assertEqual("travel_edge", moved["movement"]["travel_estimate"]["distance_source"])
         self.assertEqual("road", moved["movement"]["travel_estimate"]["route_mode"])
 

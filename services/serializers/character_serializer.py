@@ -13,6 +13,8 @@ from services.equipment import serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression, serialize_level_renown
 from services.status_effects import serialize_status_effects
+from services.skills import serialize_character_skills
+from services.timekeeping import calendar_date_for_day
 from services.world_data import get_coordinate_system, normalize_coordinate
 
 SIZE_ABBREVIATIONS = {
@@ -494,6 +496,7 @@ def serialize_character(
     ) if serialized_attributes else "None"
 
     location_context = _serialize_current_location_context(current_location)
+    calendar_date = calendar_date_for_day(campaign.current_ingame_day) if campaign else None
 
     return {
         "id": character.id,
@@ -536,6 +539,9 @@ def serialize_character(
             "subregion": location_context["subregion"],
             "coordinate_x": location_context["coordinate_x"],
             "coordinate_y": location_context["coordinate_y"],
+            "ingame_day": campaign.current_ingame_day if campaign else None,
+            "calendar": calendar_date,
+            "day_label": calendar_date["date_label"] if calendar_date else "Unknown Day",
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
             "quest_summary": get_visible_campaign_quest_summary(campaign),
             "visible_quests": visible_quests,

@@ -196,7 +196,7 @@
             <section class="card home-state-card">
                 <h2>Adventure State</h2>
                 <p id="state-location"><strong>📍 Location:</strong> {{ active_character.current_state.location }}</p>
-                <p id="state-time"><strong>🕒 Time:</strong> {{ active_character.current_state.time_of_day }}</p>
+                <p id="state-time"><strong>🕒 Time:</strong> {{ active_character.current_state.day_label }} · {{ active_character.current_state.time_of_day }}</p>
                 <div id="state-quest" class="quest-panel">
                     <h2>📜 Quest</h2>
                     <div class="quest-list">
@@ -392,7 +392,7 @@
         }
 
         if (timeEl) {
-            timeEl.innerHTML = `<strong>🕒 Time:</strong> ${character.current_state.time_of_day}`;
+            timeEl.innerHTML = `<strong>🕒 Time:</strong> ${character.current_state.day_label} · ${character.current_state.time_of_day}`;
         }
 
         if (questEl) {

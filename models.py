@@ -244,6 +244,7 @@ class Campaign(db.Model, TimestampMixin):
     status = db.Column(db.String(20), default="active", nullable=False)
     current_location_id = db.Column(db.Integer)
     current_ingame_day = db.Column(db.Integer, default=1, nullable=False)
+    current_ingame_minute = db.Column(db.Integer, default=540, nullable=False)
     current_ingame_time = db.Column(db.String(20), default="morning", nullable=False)
     last_played_at = db.Column(db.DateTime, default=datetime.utcnow)
 

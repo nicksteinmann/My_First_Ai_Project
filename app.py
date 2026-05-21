@@ -123,6 +123,30 @@ def ensure_sqlite_schema_compatibility() -> None:
         if column_name not in quest_column_names:
             db.session.execute(text(statement))
 
+    campaign_columns = db.session.execute(text("PRAGMA table_info(campaigns)")).fetchall()
+    campaign_column_names = {column[1] for column in campaign_columns}
+    if "current_ingame_minute" not in campaign_column_names:
+        db.session.execute(text(
+            "ALTER TABLE campaigns "
+            "ADD COLUMN current_ingame_minute INTEGER NOT NULL DEFAULT 540"
+        ))
+        db.session.execute(text(
+            """
+            UPDATE campaigns
+            SET current_ingame_minute = CASE current_ingame_time
+                WHEN 'midnight' THEN 0
+                WHEN 'late night' THEN 180
+                WHEN 'early morning' THEN 360
+                WHEN 'morning' THEN 540
+                WHEN 'noon' THEN 720
+                WHEN 'afternoon' THEN 900
+                WHEN 'evening' THEN 1080
+                WHEN 'night' THEN 1260
+                ELSE 540
+            END
+            """
+        ))
+
     location_columns = db.session.execute(text("PRAGMA table_info(campaign_locations)")).fetchall()
     location_column_names = {column[1] for column in location_columns}
     location_column_statements = {
