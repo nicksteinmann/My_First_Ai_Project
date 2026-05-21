@@ -3,20 +3,102 @@
 {% block content %}
 <section class="page-header">
     <h1>{{ world.name }}</h1>
-    <p class="muted-text">{{ world.era }} · Year {{ world.year }}</p>
+    <p class="muted-text">{{ world.era }} &middot; Year {{ world.year }}</p>
 </section>
 
-<section class="card">
+<section class="card world-summary-card">
     <h2>World Summary</h2>
     <p>{{ world.summary }}</p>
 </section>
 
+<section class="card world-map-card">
+    <div class="section-header">
+        <div>
+            <h2>World Map</h2>
+            <p class="muted-text">
+                Coordinates use a {{ world.coordinate_system.width }} x {{ world.coordinate_system.height }} map grid.
+                One coordinate point is roughly
+                {{ world.coordinate_system.scale_km_per_unit }} km.
+            </p>
+        </div>
+    </div>
+
+    <figure class="world-map-figure">
+        <img
+            class="world-map-image"
+            src="{{ url_for('static', filename=world.map_image) }}"
+            alt="Illustrated fantasy map of Avalion with English region and city labels"
+        >
+    </figure>
+</section>
+
+<section class="card">
+    <h2>Regions</h2>
+    <div class="world-region-grid">
+        {% for region in world.regions %}
+            <article class="world-region-panel">
+                <div class="world-region-heading">
+                    <h3>{{ region.name }}</h3>
+                    <span>{{ region.dominant_people }}</span>
+                </div>
+                <p class="muted-text">{{ region.terrain }}</p>
+                <p>{{ region.description }}</p>
+                {% if region.travel_requirement %}
+                    <p><strong>Travel:</strong> {{ region.travel_requirement }}</p>
+                {% endif %}
+            </article>
+        {% endfor %}
+    </div>
+</section>
+
 <section class="card">
     <h2>Known Locations</h2>
-    <ul class="simple-list">
-        {% for location in world.locations %}
-            <li>{{ location }}</li>
+    {% for region in world.regions %}
+        <div class="world-location-section">
+            <h3>{{ region.name }}</h3>
+            <div class="world-location-table-wrap">
+                <table class="world-location-table">
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>Kind</th>
+                            <th>Subregion</th>
+                            <th>Coordinates</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for location in region.locations %}
+                            <tr>
+                                <td><strong>{{ location.name }}</strong></td>
+                                <td>{{ location.kind|replace("_", " ")|title }}</td>
+                                <td>{{ location.subregion }}</td>
+                                <td>{{ location.x }}, {{ location.y }}</td>
+                                <td>{{ location.description }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endfor %}
+</section>
+
+<section class="card">
+    <h2>Travel Routes</h2>
+    <p class="muted-text">
+        These are direct route anchors for later travel-time and validation rules.
+        Distances are approximate and may be adjusted by roads, terrain, weather, mounts, ships, or magic.
+    </p>
+    <div class="world-route-grid">
+        {% for route in world.travel_edges %}
+            <div class="world-route">
+                <strong>{{ route["from"]|replace("_", " ")|title }}</strong>
+                <span>to</span>
+                <strong>{{ route["to"]|replace("_", " ")|title }}</strong>
+                <span>{{ route.mode|replace("_", " ")|title }} &middot; {{ route.distance_km }} km</span>
+            </div>
         {% endfor %}
-    </ul>
+    </div>
 </section>
 {% endblock %}

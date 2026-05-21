@@ -416,6 +416,122 @@ textarea {
     margin: 0.35rem 0;
 }
 
+/* WORLD */
+
+.world-summary-card p,
+.world-map-card p {
+    max-width: 920px;
+    line-height: 1.55;
+}
+
+.world-map-figure {
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0b1220;
+}
+
+.world-map-image {
+    display: block;
+    width: 100%;
+    max-height: 780px;
+    object-fit: contain;
+    background: #0b1220;
+}
+
+.world-region-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.85rem;
+}
+
+.world-region-panel {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.9rem;
+}
+
+.world-region-panel h3,
+.world-location-section h3 {
+    margin-top: 0;
+}
+
+.world-region-panel p {
+    line-height: 1.45;
+}
+
+.world-region-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: baseline;
+}
+
+.world-region-heading span {
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.world-location-section + .world-location-section {
+    margin-top: 1.2rem;
+}
+
+.world-location-table-wrap {
+    overflow-x: auto;
+}
+
+.world-location-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 860px;
+}
+
+.world-location-table th,
+.world-location-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.world-location-table th {
+    color: var(--muted);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+}
+
+.world-location-table td {
+    line-height: 1.35;
+}
+
+.world-route-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.55rem;
+    margin-top: 1rem;
+}
+
+.world-route {
+    display: grid;
+    grid-template-columns: max-content max-content minmax(0, 1fr);
+    gap: 0.35rem;
+    align-items: baseline;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.55rem 0.65rem;
+    font-size: 0.9rem;
+}
+
+.world-route span:last-child {
+    grid-column: 1 / -1;
+    color: var(--muted);
+}
+
 /* HOME */
 .home-layout {
     display: grid;

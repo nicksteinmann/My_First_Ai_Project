@@ -594,6 +594,8 @@ Working:
 - Character level progression and XP tool
 - Automatic attribute XP from character level-ups
 - Skill progression and skill XP tools
+- Structured Avalion world map data with fixed regions, cities, coordinates, and route distances
+- World overview page backed by `data/world.json`
 - Multi-system tool pipeline
 - UI state refresh after game turns
 - Rule-grounded item and state interaction through backend tools
@@ -611,7 +613,7 @@ Known limitations:
 - No NPC system yet
 - No merchant / trading system yet
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
-- No structured world knowledge system yet
+- Structured map foundation exists, but active gameplay location/coordinate resolution is not connected yet
 - Non-quest loot, pickup/equip, and travel-time changes still need stronger tool-routing enforcement
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
@@ -635,6 +637,7 @@ Mid-term:
 - Merchant and trading tools
 - NPC interaction system
 - Combat system
+- Player location, region/subregion resolution, and coordinate-based travel time
 - Better tool retry and failure handling
 
 Long-term:

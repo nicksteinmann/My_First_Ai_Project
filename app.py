@@ -26,6 +26,7 @@ from models import (
     Character,
     Campaign,
     CampaignLocation,
+    TemplateLocation,
     WorldTemplate,
 )
 from routes import (
@@ -43,6 +44,7 @@ from services.leveling import LEVELING_TOOL_DEFINITIONS, execute_leveling_tool
 from services.resources import RESOURCE_TOOL_DEFINITIONS, execute_resource_tool
 from services.serializers import serialize_character
 from services.skills import SKILL_TOOL_DEFINITIONS, ensure_core_skill_definitions, execute_skill_tool
+from services.world_data import ensure_world_template_locations, load_world_data
 from services.status_effects import STATUS_EFFECT_TOOL_DEFINITIONS, execute_status_effect_tool
 from services.story import (
     get_recent_story_messages,
@@ -220,18 +222,23 @@ def create_app() -> Flask:
         """
         world = WorldTemplate.query.filter_by(slug="avalion-default").first()
         if world:
+            ensure_world_template_locations(db.session, world, TemplateLocation)
+            db.session.commit()
             return world
 
+        world_data = load_world_data()
         world = WorldTemplate(
-            name="Avalion",
+            name=world_data["name"],
             slug="avalion-default",
-            description="Default fantasy world for campaign starts.",
-            lore_summary="A fantasy world with a peaceful capital hub for all peoples.",
-            current_era="Fantasy Middle Ages",
-            world_year=1000,
+            description=world_data["summary"],
+            lore_summary=world_data["summary"],
+            current_era=world_data["era"],
+            world_year=world_data["year"],
             is_active=True,
         )
         db.session.add(world)
+        db.session.flush()
+        ensure_world_template_locations(db.session, world, TemplateLocation)
 
         try:
             db.session.commit()
