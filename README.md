@@ -174,7 +174,7 @@ Each active campaign tracks:
 
 - Current location
 - Current map coordinates, region, and subregion for campaign locations
-- Time of day
+- Exact in-game day and minute, displayed as a coarse fantasy time of day
 - Visible quests
 - Structured quest state
 - Quest rewards and reward claim status
@@ -184,6 +184,8 @@ Tools:
 - update_location
 - move_to_coordinates
 - advance_time
+- spend_time
+- rest
 - create_quest
 - get_quest_details
 - update_quest_objective_progress
@@ -211,6 +213,11 @@ Implemented:
 - Map coordinates are normalized to 3 decimal places; with 10 km per coordinate unit this gives roughly 10 meter precision
 - Normal coordinate movement is distance-validated against backend map data so small jobs do not silently jump across the continent
 - Travel duration estimates are backend-derived from distance, travel mode, route mode, and terrain hints; walking defaults to 5 km/h
+- `move_to_coordinates` applies backend-estimated travel minutes to the campaign clock on successful travel
+- `advance_time` updates exact backend minutes and rolls the campaign date while the UI shows the fantasy calendar date plus a broad day phase
+- Calendar dates are derived from the absolute campaign day using 13 months of 28 days and 7-day weeks, starting on 12. Suncrest 1143
+- `spend_time` handles backend-default action durations for searches, meals, shopping, chores, training, crafting, combat, and waiting
+- `rest` handles short rests, long rests, and sleeping until morning
 - `turn_in_quest` validates objectives, consumes delivery items, and grants normal XP, currency, and item rewards
 - Separate quest states for active, completed, turned in, and claimed rewards
 - Multiple visible quests in the UI
@@ -429,7 +436,7 @@ Current class focus:
 - Priest: charisma and intelligence
 - Ranger: perception and dexterity
 
-Note: direct training actions, long-term training time rules, equipment modifiers, and status-effect modifiers are future work.
+Note: backend time costs for lessons and self-training are prepared through `spend_time`, but direct training XP rules, equipment modifiers, and status-effect modifiers are future work.
 
 Tool:
 
@@ -607,7 +614,8 @@ Working:
 - World overview page backed by `data/world.json`
 - Active campaign locations can carry coordinate, region, subregion, and fixed-world-location context
 - Coordinate travel tool that validates destination distance before updating the active campaign location
-- Backend travel-time estimation for coordinate and fixed-route travel; applying those minutes to the in-game clock is still separate
+- Backend travel-time estimation for coordinate and fixed-route travel, applied to the in-game clock on successful travel
+- Backend action-time tools for meaningful non-travel actions, rests, and sleeping until morning
 - Multi-system tool pipeline
 - UI state refresh after game turns
 - Rule-grounded item and state interaction through backend tools
@@ -626,8 +634,8 @@ Known limitations:
 - No merchant / trading system yet
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
 - Region/subregion bounds are MVP rectangles; organic border polygons and generated-place persistence rules still need deeper map integration
-- Non-quest loot, pickup/equip, and travel-time changes still need stronger tool-routing enforcement
-- Coordinate travel updates location, but exact travel-time calculation is still separate follow-up work
+- Non-quest loot and pickup/equip changes still need stronger tool-routing enforcement
+- Travel time is applied by backend tools, but downstream systems such as timed status effects, shop refreshes, and NPC schedules are still future work
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
 
@@ -650,7 +658,8 @@ Mid-term:
 - Merchant and trading tools
 - NPC interaction system
 - Combat system
-- Organic region/subregion polygons, generated-place persistence, and coordinate-based travel time
+- Organic region/subregion polygons and generated-place persistence
+- Shop opening hours, trainer schedules, rest recovery, and status-effect ticking tied to campaign time
 - Better tool retry and failure handling
 
 Long-term:

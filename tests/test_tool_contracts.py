@@ -22,6 +22,8 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
                 "update_location",
                 "move_to_coordinates",
                 "advance_time",
+                "spend_time",
+                "rest",
                 "create_quest",
                 "validate_quest_progress",
                 "get_quest_details",

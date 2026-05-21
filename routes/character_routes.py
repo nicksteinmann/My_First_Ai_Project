@@ -300,6 +300,7 @@ def register_character_routes(
                 title=f"{new_character.name}'s First Journey",
                 status="active",
                 current_ingame_day=1,
+                current_ingame_minute=540,
                 current_ingame_time="morning"
             )
             db.session.add(new_campaign)

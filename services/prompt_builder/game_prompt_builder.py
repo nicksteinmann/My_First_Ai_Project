@@ -205,6 +205,7 @@ Active Character:
 - Region: {location_context.get('region_name') or 'Unknown'}
 - Subregion: {location_context.get('subregion') or 'Unknown'}
 - Map Coordinates: {coordinate_label} (1 coordinate unit = {location_context.get('scale_km_per_unit') or 10} km)
+- Day: {active_character['current_state'].get('day_label', 'Unknown Day')}
 - Time of Day: {active_character['current_state']['time_of_day']}
 - Quest System: Multi-quest list below. Use explicit quest IDs from Visible Quests.
 - Equipment: {active_character.get('equipment_summary', 'None')}
@@ -249,7 +250,10 @@ State Changes:
     - When the player moves into a distinct room, shop, cellar, street, camp, or other place, call update_location in the same response as the arrival.
     - Use update_location for local movement inside the current map position, such as rooms, shops, cellars, streets, tavern tables, market stalls, and nearby interiors.
     - Use move_to_coordinates for overland/map movement where the character travels to another city, landmark, wilderness point, road segment, camp, ruin, pass, coast, or generated outdoor destination with its own coordinates.
-    - move_to_coordinates validates distance from the backend's current coordinates and returns backend-estimated travel minutes. Do not invent travel duration yourself.
+    - move_to_coordinates validates distance from the backend's current coordinates, applies backend-estimated travel minutes to the campaign clock on success, and returns the resulting time change. Do not invent travel duration yourself.
+    - Use spend_time for meaningful non-travel actions that take time, such as searching, eating, shopping, chores, lessons, self-training, crafting, repairs, combat resolution, or waiting.
+    - Do not call spend_time for every short conversation. Short exchanges usually cost 0 minutes unless the player explicitly waits, practices, searches, works, rests, shops, eats, or performs another time-consuming action.
+    - Use rest for short rests, long rests, or sleeping until morning. Rest currently advances time; resource recovery is handled later.
     - If move_to_coordinates returns success=false because the target is too far, do not narrate arrival; offer smaller travel steps, transport, or a longer declared journey.
     - For known Avalion map cities/landmarks, include world_location_id or the exact fixed name so the backend can attach the correct coordinates.
     - For local sublocations inside the current place, such as a rented room, cellar, shop, or tavern table, omit coordinates unless they are truly known; the backend will inherit the current map position.
