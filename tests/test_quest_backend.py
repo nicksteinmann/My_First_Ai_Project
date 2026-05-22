@@ -8,6 +8,9 @@ from models import (
     CampaignLocation,
     CampaignNPC,
     Character,
+    CharacterAttribute,
+    CharacterSkill,
+    SkillDefinition,
     User,
     WorldTemplate,
     db,
@@ -18,6 +21,7 @@ from services.adventure_state.tools import (
     create_quest,
     get_quest_details,
     move_to_coordinates,
+    perform_check,
     rest,
     spend_time,
     turn_in_quest,
@@ -27,6 +31,7 @@ from services.adventure_state.tools import (
 )
 from services.currency.service import get_currency
 from services.inventory.service import add_inventory_item, get_inventory
+from services.skills import ensure_core_skill_definitions
 
 
 class QuestBackendTestCase(unittest.TestCase):
@@ -41,6 +46,7 @@ class QuestBackendTestCase(unittest.TestCase):
         self.app_context = self.app.app_context()
         self.app_context.push()
         db.create_all()
+        ensure_core_skill_definitions()
 
         self.user = User(
             username="tester",
@@ -63,6 +69,17 @@ class QuestBackendTestCase(unittest.TestCase):
         )
         db.session.add_all([self.user, self.character, self.world])
         db.session.flush()
+
+        self.attributes = CharacterAttribute(
+            character_id=self.character.id,
+            strength=6,
+            dexterity=6,
+            constitution=6,
+            intelligence=6,
+            perception=6,
+            charisma=6,
+        )
+        db.session.add(self.attributes)
 
         self.campaign = Campaign(
             character_id=self.character.id,
@@ -115,6 +132,26 @@ class QuestBackendTestCase(unittest.TestCase):
             is_custom=True,
         )
         db.session.add_all([self.innkeeper, self.merchant])
+        db.session.commit()
+
+    def _set_skill_level(self, skill_name: str, level: int):
+        skill = SkillDefinition.query.filter_by(name=skill_name, is_active=True).first()
+        self.assertIsNotNone(skill)
+        row = CharacterSkill.query.filter_by(
+            character_id=self.character.id,
+            skill_id=skill.id,
+        ).first()
+        if not row:
+            row = CharacterSkill(
+                character_id=self.character.id,
+                skill_id=skill.id,
+                skill_level=0,
+                skill_xp=0,
+                bonus_modifier=0,
+            )
+            db.session.add(row)
+            db.session.flush()
+        row.skill_level = int(level)
         db.session.commit()
 
     def tearDown(self):
@@ -407,6 +444,66 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertEqual("night", moved["time"]["new_time"])
         self.assertEqual("travel_edge", moved["movement"]["travel_estimate"]["distance_source"])
         self.assertEqual("road", moved["movement"]["travel_estimate"]["route_mode"])
+
+    def test_perform_check_uses_skill_mapping_and_secondary_attributes(self):
+        self.character.level = 10
+        self.attributes.dexterity = 15
+        self.attributes.intelligence = 6
+        db.session.commit()
+        self._set_skill_level("Lockpicking", 95)
+
+        result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Pick the merchant lockbox",
+            action_type="lockpicking",
+            skill_name="Lockpicking",
+            challenge_level=75,
+            challenge_type="master",
+            include_character_level=True,
+            forced_roll=20,
+        )
+
+        self.assertTrue(result["success"], result)
+        check = result["check"]
+        self.assertEqual("dexterity", check["primary_attribute"]["key"])
+        self.assertEqual("Lockpicking", check["skill_name"])
+        self.assertTrue(any(item["key"] == "intelligence" for item in check["secondary_attributes"]))
+        self.assertGreaterEqual(check["success_chance_percent"], 0)
+        self.assertLessEqual(check["success_chance_percent"], 100)
+        self.assertIn(
+            check["outcome"],
+            {
+                "critical_failure",
+                "failure",
+                "partial_success",
+                "success",
+                "strong_success",
+                "critical_success",
+            },
+        )
+
+    def test_perform_check_arcane_lore_has_no_secondary_attributes(self):
+        self.character.level = 10
+        self.attributes.intelligence = 15
+        db.session.commit()
+        self._set_skill_level("Arcane Lore", 95)
+
+        result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Decode an ancient rune circle",
+            action_type="arcane_lore",
+            skill_name="Arcane Lore",
+            challenge_level=90,
+            challenge_type="legendary",
+            include_character_level=True,
+            forced_roll=20,
+        )
+
+        self.assertTrue(result["success"], result)
+        check = result["check"]
+        self.assertEqual("intelligence", check["primary_attribute"]["key"])
+        self.assertEqual([], check["secondary_attributes"])
+        self.assertEqual("Arcane Lore", check["skill_name"])
 
     def test_quest_location_ids_serialize_coordinate_context(self):
         start = update_location(

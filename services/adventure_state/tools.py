@@ -1,9 +1,22 @@
 """Adventure state tools for location, time, and quest tracking."""
 
 import json
+import math
+import random
 from datetime import datetime
 
-from models import db, Campaign, CampaignLocation, CampaignQuest
+from models import (
+    db,
+    Campaign,
+    CampaignLocation,
+    CampaignQuest,
+    Character,
+    CharacterAttribute,
+    CharacterSkill,
+    SkillCheckLog,
+    SkillDefinition,
+)
+from services.skills.constants import CORE_SKILLS
 from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATES
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item, get_inventory, remove_inventory_item
@@ -124,6 +137,140 @@ REST_TIME_RULES = {
     "long": 8 * 60,
     "long_rest": 8 * 60,
 }
+
+CHECK_PASS_TARGET = 11
+CHECK_ROLL_MIN = 1
+CHECK_ROLL_MAX = 20
+CHECK_NORM_MAX = 101.0
+CHECK_TYPE_DIFFICULTY_OFFSETS = {
+    "trivial": -8,
+    "easy": -3,
+    "normal": 0,
+    "hard": 6,
+    "expert": 12,
+    "master": 20,
+    "legendary": 30,
+}
+CHECK_ATTRIBUTE_ALIASES = {
+    "str": "strength",
+    "staerke": "strength",
+    "starke": "strength",
+    "dex": "dexterity",
+    "agility": "dexterity",
+    "con": "constitution",
+    "int": "intelligence",
+    "per": "perception",
+    "cha": "charisma",
+}
+
+
+def _skill_name_key(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    return "".join(ch for ch in normalized if ch.isalnum())
+
+
+_CORE_SKILL_META_BY_NAME_KEY = {
+    _skill_name_key(skill["name"]): {
+        "linked_attribute": skill.get("linked_attribute"),
+        "secondary_attributes": list(skill.get("secondary_attributes") or []),
+    }
+    for skill in CORE_SKILLS
+}
+
+
+def _normalize_check_attribute(attribute_name: str):
+    normalized = (attribute_name or "").strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = CHECK_ATTRIBUTE_ALIASES.get(normalized, normalized)
+    valid = {"strength", "dexterity", "constitution", "intelligence", "perception", "charisma"}
+    if normalized not in valid:
+        return None
+    return normalized
+
+
+def _normalize_challenge_type(challenge_type: str):
+    normalized = (challenge_type or "normal").strip().lower().replace("-", "_")
+    aliases = {
+        "very_easy": "trivial",
+        "simple": "easy",
+        "medium": "normal",
+        "difficult": "hard",
+        "very_hard": "expert",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in CHECK_TYPE_DIFFICULTY_OFFSETS:
+        return None
+    return normalized
+
+
+def _normalize_secondary_attributes(raw_secondary_attributes):
+    if not raw_secondary_attributes:
+        return []
+    if isinstance(raw_secondary_attributes, str):
+        raw_secondary_attributes = [raw_secondary_attributes]
+    normalized = []
+    seen = set()
+    for attribute in raw_secondary_attributes:
+        normalized_attribute = _normalize_check_attribute(attribute)
+        if not normalized_attribute:
+            continue
+        if normalized_attribute in seen:
+            continue
+        seen.add(normalized_attribute)
+        normalized.append(normalized_attribute)
+    return normalized
+
+
+def _normalized_check_value(value):
+    value = max(0.0, float(value or 0.0))
+    return 100.0 * math.log1p(value) / math.log(CHECK_NORM_MAX)
+
+
+def _resolve_skill_and_attribute_context(character_id: int, skill_name: str):
+    if not skill_name:
+        return None, None
+
+    normalized_skill_name_key = _skill_name_key(skill_name)
+    skill_definition = None
+    for candidate in SkillDefinition.query.filter_by(is_active=True).all():
+        if _skill_name_key(candidate.name) == normalized_skill_name_key:
+            skill_definition = candidate
+            break
+
+    if not skill_definition:
+        return None, None
+
+    character_skill = CharacterSkill.query.filter_by(
+        character_id=character_id,
+        skill_id=skill_definition.id,
+    ).first()
+
+    skill_level = int(character_skill.skill_level or 0) if character_skill else 0
+
+    core_meta = _CORE_SKILL_META_BY_NAME_KEY.get(_skill_name_key(skill_definition.name), {})
+    linked_attribute = _normalize_check_attribute(skill_definition.linked_attribute) or _normalize_check_attribute(
+        core_meta.get("linked_attribute")
+    )
+    secondary_attributes = _normalize_secondary_attributes(core_meta.get("secondary_attributes", []))
+
+    return {
+        "skill_definition": skill_definition,
+        "skill_level": max(0, skill_level),
+    }, {
+        "linked_attribute": linked_attribute,
+        "secondary_attributes": secondary_attributes,
+    }
+
+
+def _resolve_check_roll(forced_roll=None):
+    if forced_roll is None:
+        return random.randint(CHECK_ROLL_MIN, CHECK_ROLL_MAX)
+    try:
+        forced_roll = int(forced_roll)
+    except (TypeError, ValueError):
+        return None
+    if forced_roll < CHECK_ROLL_MIN or forced_roll > CHECK_ROLL_MAX:
+        return None
+    return forced_roll
 
 
 def _normalize_time_label(value: str) -> str:
@@ -748,6 +895,179 @@ def rest(campaign_id: int, rest_type: str = "short"):
         "tool": "rest",
         "rest_type": normalized_rest_type,
         **time_change,
+    }
+
+
+def perform_check(
+    campaign_id: int,
+    action_text: str,
+    challenge_level: int,
+    challenge_type: str = "normal",
+    skill_name: str = None,
+    primary_attribute: str = None,
+    secondary_attributes=None,
+    include_character_level: bool = True,
+    action_type: str = "general",
+    forced_roll=None,
+):
+    """Resolve an attribute/skill check with backend-owned math and outcome."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    attributes = character.attributes
+    if not attributes:
+        return {"success": False, "error": "Character attributes not found."}
+
+    if not action_text or not str(action_text).strip():
+        return {"success": False, "error": "action_text is required."}
+
+    try:
+        challenge_level = int(challenge_level)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "challenge_level must be an integer."}
+
+    if challenge_level < 1 or challenge_level > 100:
+        return {"success": False, "error": "challenge_level must be between 1 and 100."}
+
+    normalized_challenge_type = _normalize_challenge_type(challenge_type)
+    if not normalized_challenge_type:
+        return {"success": False, "error": "Unknown challenge_type."}
+
+    skill_context = None
+    resolved_skill_context = None
+    if skill_name:
+        skill_context, resolved_skill_context = _resolve_skill_and_attribute_context(character.id, skill_name)
+        if not skill_context:
+            return {"success": False, "error": f"Skill not found: {skill_name}"}
+
+    resolved_primary_attribute = _normalize_check_attribute(primary_attribute)
+    if not resolved_primary_attribute and resolved_skill_context:
+        resolved_primary_attribute = resolved_skill_context.get("linked_attribute")
+    if not resolved_primary_attribute:
+        return {"success": False, "error": "A valid primary attribute is required."}
+
+    resolved_secondary_attributes = _normalize_secondary_attributes(secondary_attributes)
+    if not resolved_secondary_attributes and resolved_skill_context:
+        resolved_secondary_attributes = list(resolved_skill_context.get("secondary_attributes") or [])
+    resolved_secondary_attributes = [
+        attribute
+        for attribute in resolved_secondary_attributes
+        if attribute != resolved_primary_attribute
+    ]
+
+    roll_value = _resolve_check_roll(forced_roll)
+    if roll_value is None:
+        return {"success": False, "error": "forced_roll must be an integer between 1 and 20 when provided."}
+
+    primary_attribute_value = int(getattr(attributes, resolved_primary_attribute, 0) or 0)
+    primary_effective = _normalized_check_value(primary_attribute_value)
+
+    secondary_effective = 0.0
+    secondary_values = []
+    if resolved_secondary_attributes:
+        secondary_values = [
+            int(getattr(attributes, attribute_key, 0) or 0)
+            for attribute_key in resolved_secondary_attributes
+        ]
+        if secondary_values:
+            secondary_effective = _normalized_check_value(sum(secondary_values) / len(secondary_values))
+
+    skill_level = int(skill_context["skill_level"]) if skill_context else 0
+    skill_effective = _normalized_check_value(skill_level)
+
+    level_effective = _normalized_check_value(character.level if include_character_level else 0)
+
+    player_score = (
+        0.50 * primary_effective
+        + 0.10 * secondary_effective
+        + 0.35 * skill_effective
+        + 0.05 * level_effective
+    )
+    challenge_score = float(challenge_level + CHECK_TYPE_DIFFICULTY_OFFSETS[normalized_challenge_type])
+    margin = player_score - challenge_score
+    total_value = roll_value + margin
+    required_roll = CHECK_PASS_TARGET - margin
+
+    if required_roll <= CHECK_ROLL_MIN:
+        success_chance_percent = 100
+    elif required_roll > CHECK_ROLL_MAX:
+        success_chance_percent = 0
+    else:
+        success_chance_percent = int(round(((CHECK_ROLL_MAX - required_roll + 1) / CHECK_ROLL_MAX) * 100))
+
+    is_success = total_value >= CHECK_PASS_TARGET
+    if total_value <= CHECK_PASS_TARGET - 8:
+        outcome = "critical_failure"
+    elif total_value < CHECK_PASS_TARGET:
+        outcome = "failure"
+    elif total_value < CHECK_PASS_TARGET + 4:
+        outcome = "partial_success"
+    elif total_value < CHECK_PASS_TARGET + 8:
+        outcome = "success"
+    elif total_value < CHECK_PASS_TARGET + 12:
+        outcome = "strong_success"
+    else:
+        outcome = "critical_success"
+
+    skill_definition = skill_context["skill_definition"] if skill_context else None
+    log_row = SkillCheckLog(
+        campaign_id=campaign.id,
+        character_id=character.id,
+        action_text=str(action_text).strip(),
+        action_type=(action_type or "general").strip().lower() or "general",
+        skill_id=skill_definition.id if skill_definition else None,
+        attribute_used=resolved_primary_attribute,
+        difficulty_value=int(round(challenge_score)),
+        roll_value=int(roll_value),
+        total_value=int(round(total_value)),
+        outcome=outcome,
+    )
+    db.session.add(log_row)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "perform_check",
+        "check": {
+            "is_success": bool(is_success),
+            "outcome": outcome,
+            "action_text": str(action_text).strip(),
+            "action_type": (action_type or "general").strip().lower() or "general",
+            "challenge_level": challenge_level,
+            "challenge_type": normalized_challenge_type,
+            "challenge_score": round(challenge_score, 2),
+            "roll_value": int(roll_value),
+            "pass_target": CHECK_PASS_TARGET,
+            "required_roll": round(required_roll, 2),
+            "success_chance_percent": max(0, min(100, success_chance_percent)),
+            "total_value": round(total_value, 2),
+            "margin": round(margin, 2),
+            "character_level_used": bool(include_character_level),
+            "skill_name": skill_definition.name if skill_definition else None,
+            "skill_level": skill_level,
+            "primary_attribute": {
+                "key": resolved_primary_attribute,
+                "value": primary_attribute_value,
+                "effective": round(primary_effective, 2),
+            },
+            "secondary_attributes": [
+                {"key": key, "value": value}
+                for key, value in zip(resolved_secondary_attributes, secondary_values)
+            ],
+            "score_breakdown": {
+                "primary_component": round(0.50 * primary_effective, 2),
+                "secondary_component": round(0.10 * secondary_effective, 2),
+                "skill_component": round(0.35 * skill_effective, 2),
+                "level_component": round(0.05 * level_effective, 2),
+            },
+            "log_id": log_row.id,
+        },
     }
 
 
@@ -1876,6 +2196,55 @@ STATE_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "perform_check",
+            "description": (
+                "Resolve a backend-owned attribute/skill check and return success chance, roll outcome, "
+                "and degree of success. Use this when the action outcome should not be decided by narration alone."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action_text": {
+                        "type": "string",
+                        "description": "Short description of the attempted action."
+                    },
+                    "action_type": {
+                        "type": "string",
+                        "description": "Context tag such as lockpicking, social, survival, combat_action, crafting or general."
+                    },
+                    "challenge_level": {
+                        "type": "integer",
+                        "description": "Difficulty level from 1 to 100."
+                    },
+                    "challenge_type": {
+                        "type": "string",
+                        "description": "Difficulty tier: trivial, easy, normal, hard, expert, master, legendary."
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Optional known skill name such as Lockpicking, Persuasion or Arcane Lore."
+                    },
+                    "primary_attribute": {
+                        "type": "string",
+                        "description": "Optional primary attribute override: strength, dexterity, constitution, intelligence, perception or charisma."
+                    },
+                    "secondary_attributes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional secondary attributes list. Only small weighting is applied."
+                    },
+                    "include_character_level": {
+                        "type": "boolean",
+                        "description": "Whether a small character-level contribution is included in the check."
+                    }
+                },
+                "required": ["action_text", "challenge_level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_quest",
             "description": "Create a structured quest in the current campaign.",
             "parameters": {
@@ -2061,6 +2430,19 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
         return rest(
             campaign_id=campaign_id,
             rest_type=arguments.get("rest_type", "short"),
+        )
+
+    if tool_name == "perform_check":
+        return perform_check(
+            campaign_id=campaign_id,
+            action_text=arguments.get("action_text", ""),
+            action_type=arguments.get("action_type", "general"),
+            challenge_level=arguments.get("challenge_level", 1),
+            challenge_type=arguments.get("challenge_type", "normal"),
+            skill_name=arguments.get("skill_name"),
+            primary_attribute=arguments.get("primary_attribute"),
+            secondary_attributes=arguments.get("secondary_attributes"),
+            include_character_level=arguments.get("include_character_level", True),
         )
 
     if tool_name == "create_quest":
