@@ -6,9 +6,11 @@ inventory container while equipped. Slot validation stays here so the LLM cannot
 equip items by directly mutating JSON state.
 """
 
+import json
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
+from models import Character, CharacterSkill, SkillDefinition, db
 from services.inventory.constants import DEFAULT_BASE_CONTAINER, HAND_CONTAINER_IDS, SIZE_ORDER
 from services.inventory.repository import load_inventory_blob, save_inventory_blob
 
@@ -19,6 +21,144 @@ from .constants import (
     HAND_SLOTS,
     SLOT_ALIASES,
     SLOT_LABELS,
+)
+
+DEFAULT_WEAPON_PROFILE = {
+    "weapon_family": "improvised",
+    "damage_type": "blunt",
+    "base_damage_min": 4,
+    "base_damage_max": 10,
+    "scaling": {"strength": 0.55, "dexterity": 0.30},
+    "skill_name": "Athletics",
+    "attack_mode": "melee",
+}
+
+WEAPON_FAMILY_PROFILES = {
+    "unarmed": {
+        "damage_type": "blunt",
+        "base_damage_min": 3,
+        "base_damage_max": 8,
+        "scaling": {"strength": 0.45, "dexterity": 0.20},
+        "skill_name": "Athletics",
+        "attack_mode": "melee",
+    },
+    "improvised": DEFAULT_WEAPON_PROFILE,
+    "dagger": {
+        "damage_type": "pierce",
+        "base_damage_min": 8,
+        "base_damage_max": 14,
+        "scaling": {"dexterity": 0.70, "strength": 0.20},
+        "skill_name": "Swordsmanship",
+        "attack_mode": "melee",
+    },
+    "rapier": {
+        "damage_type": "pierce",
+        "base_damage_min": 8,
+        "base_damage_max": 14,
+        "scaling": {"dexterity": 0.75, "strength": 0.15},
+        "skill_name": "Swordsmanship",
+        "attack_mode": "melee",
+    },
+    "sword": {
+        "damage_type": "slash",
+        "base_damage_min": 10,
+        "base_damage_max": 18,
+        "scaling": {"strength": 0.55, "dexterity": 0.30},
+        "skill_name": "Swordsmanship",
+        "attack_mode": "melee",
+    },
+    "greatsword": {
+        "damage_type": "slash",
+        "base_damage_min": 14,
+        "base_damage_max": 24,
+        "scaling": {"strength": 0.80, "dexterity": 0.10},
+        "skill_name": "Swordsmanship",
+        "attack_mode": "melee",
+    },
+    "axe_hammer": {
+        "damage_type": "blunt",
+        "base_damage_min": 14,
+        "base_damage_max": 24,
+        "scaling": {"strength": 0.85, "constitution": 0.10},
+        "skill_name": "Axes & Hammers",
+        "attack_mode": "melee",
+    },
+    "mace_club": {
+        "damage_type": "blunt",
+        "base_damage_min": 12,
+        "base_damage_max": 20,
+        "scaling": {"strength": 0.80, "constitution": 0.10},
+        "skill_name": "Axes & Hammers",
+        "attack_mode": "melee",
+    },
+    "polearm": {
+        "damage_type": "pierce",
+        "base_damage_min": 12,
+        "base_damage_max": 22,
+        "scaling": {"strength": 0.65, "dexterity": 0.20},
+        "skill_name": "Polearms",
+        "attack_mode": "melee",
+    },
+    "bow": {
+        "damage_type": "pierce",
+        "base_damage_min": 10,
+        "base_damage_max": 18,
+        "scaling": {"dexterity": 0.80, "perception": 0.15},
+        "skill_name": "Archery",
+        "attack_mode": "ranged",
+    },
+    "crossbow": {
+        "damage_type": "pierce",
+        "base_damage_min": 12,
+        "base_damage_max": 20,
+        "scaling": {"dexterity": 0.70, "perception": 0.20},
+        "skill_name": "Archery",
+        "attack_mode": "ranged",
+    },
+    "staff": {
+        "damage_type": "arcane",
+        "base_damage_min": 10,
+        "base_damage_max": 20,
+        "scaling": {"intelligence": 0.65, "perception": 0.20},
+        "skill_name": "Arcane Lore",
+        "attack_mode": "magic",
+    },
+    "wand": {
+        "damage_type": "arcane",
+        "base_damage_min": 12,
+        "base_damage_max": 22,
+        "scaling": {"intelligence": 0.75, "perception": 0.15},
+        "skill_name": "Arcane Lore",
+        "attack_mode": "magic",
+    },
+}
+
+WEAPON_NAME_KEYWORDS = (
+    ("greatsword", "greatsword"),
+    ("zweihandschwert", "greatsword"),
+    ("warhammer", "axe_hammer"),
+    ("battleaxe", "axe_hammer"),
+    ("greataxe", "axe_hammer"),
+    ("axe", "axe_hammer"),
+    ("axt", "axe_hammer"),
+    ("hammer", "axe_hammer"),
+    ("club", "mace_club"),
+    ("keule", "mace_club"),
+    ("mace", "mace_club"),
+    ("rapier", "rapier"),
+    ("dagger", "dagger"),
+    ("dolch", "dagger"),
+    ("spear", "polearm"),
+    ("halberd", "polearm"),
+    ("polearm", "polearm"),
+    ("bow", "bow"),
+    ("bogen", "bow"),
+    ("crossbow", "crossbow"),
+    ("staff", "staff"),
+    ("stab", "staff"),
+    ("wand", "wand"),
+    ("sword", "sword"),
+    ("schwert", "sword"),
 )
 
 
@@ -134,6 +274,223 @@ def _is_belt_pouch(item: Dict[str, Any]) -> bool:
         return True
 
     return False
+
+
+def _skill_name_key(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    return "".join(ch for ch in normalized if ch.isalnum())
+
+
+def _coerce_float(value: Any, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def _coerce_int(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(fallback)
+
+
+def _normalize_weapon_family(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "greataxe": "axe_hammer",
+        "great_axe": "axe_hammer",
+        "axe": "axe_hammer",
+        "hammer": "axe_hammer",
+        "club": "mace_club",
+        "mace": "mace_club",
+        "longsword": "sword",
+        "katana": "sword",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in WEAPON_FAMILY_PROFILES else "improvised"
+
+
+def _infer_weapon_family_from_item(item: Dict[str, Any]) -> str:
+    explicit_family = item.get("weapon_family")
+    if explicit_family:
+        return _normalize_weapon_family(explicit_family)
+
+    combat_profile = item.get("combat_profile")
+    if isinstance(combat_profile, dict) and combat_profile.get("weapon_family"):
+        return _normalize_weapon_family(combat_profile.get("weapon_family"))
+
+    name = str(item.get("name", "")).lower()
+    for keyword, family in WEAPON_NAME_KEYWORDS:
+        if keyword in name:
+            return family
+
+    item_type = _normalized_item_type(item)
+    if item_type == "weapon":
+        return "improvised"
+    return "unarmed"
+
+
+def _parse_scaling(raw_scaling: Any, default_scaling: Dict[str, float]) -> Dict[str, float]:
+    if isinstance(raw_scaling, str):
+        try:
+            raw_scaling = json.loads(raw_scaling)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_scaling = None
+    if not isinstance(raw_scaling, dict):
+        return dict(default_scaling)
+
+    normalized = {}
+    for key, value in raw_scaling.items():
+        key_normalized = str(key or "").strip().lower()
+        if key_normalized not in {"strength", "dexterity", "constitution", "intelligence", "perception", "charisma"}:
+            continue
+        normalized[key_normalized] = max(0.0, _coerce_float(value, 0.0))
+
+    return normalized or dict(default_scaling)
+
+
+def _build_weapon_profile(item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not item:
+        base = WEAPON_FAMILY_PROFILES["unarmed"]
+        return {"weapon_family": "unarmed", **base}
+
+    family = _infer_weapon_family_from_item(item)
+    base_profile = dict(WEAPON_FAMILY_PROFILES.get(family, DEFAULT_WEAPON_PROFILE))
+    combat_profile = item.get("combat_profile") if isinstance(item.get("combat_profile"), dict) else {}
+
+    damage_type = str(
+        combat_profile.get("damage_type")
+        or item.get("damage_type")
+        or base_profile["damage_type"]
+    ).strip().lower()
+    base_min = _coerce_int(combat_profile.get("base_damage_min", item.get("base_damage_min")), base_profile["base_damage_min"])
+    base_max = _coerce_int(combat_profile.get("base_damage_max", item.get("base_damage_max")), base_profile["base_damage_max"])
+    if base_max < base_min:
+        base_max = base_min
+    scaling = _parse_scaling(
+        combat_profile.get("scaling", item.get("scaling")),
+        base_profile["scaling"],
+    )
+    skill_name = str(combat_profile.get("skill_name") or item.get("skill_name") or base_profile["skill_name"]).strip() or base_profile["skill_name"]
+    attack_mode = str(combat_profile.get("attack_mode") or item.get("attack_mode") or base_profile["attack_mode"]).strip().lower()
+    item_level = _coerce_int(combat_profile.get("item_level", item.get("item_level")), 1)
+
+    return {
+        "weapon_family": family,
+        "damage_type": damage_type,
+        "base_damage_min": max(1, base_min),
+        "base_damage_max": max(1, base_max),
+        "scaling": scaling,
+        "skill_name": skill_name,
+        "item_level": max(1, min(100, item_level)),
+        "attack_mode": attack_mode if attack_mode in {"melee", "ranged", "magic"} else base_profile["attack_mode"],
+    }
+
+
+def _find_main_hand_weapon(equipment_slots: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    main_hand = equipment_slots.get("main_hand")
+    if main_hand and not _is_placeholder(main_hand):
+        if _is_weapon(main_hand):
+            return main_hand
+    off_hand = equipment_slots.get("off_hand")
+    if off_hand and not _is_placeholder(off_hand) and _is_weapon(off_hand):
+        return off_hand
+    return None
+
+
+def _load_character_skill_level(character_id: int, skill_name: str) -> int:
+    normalized = _skill_name_key(skill_name)
+    for skill_def in SkillDefinition.query.filter_by(is_active=True).all():
+        if _skill_name_key(skill_def.name) != normalized:
+            continue
+        row = CharacterSkill.query.filter_by(character_id=character_id, skill_id=skill_def.id).first()
+        if row:
+            return max(0, int(row.skill_level or 0))
+        return 0
+    return 0
+
+
+def _attribute_value(attributes, key: str) -> int:
+    return max(0, int(getattr(attributes, key, 0) or 0))
+
+
+def get_attack_profile(character_id: int) -> Dict[str, Any]:
+    """Return backend-derived attack profile from equipped weapon, attributes and skill levels."""
+
+    character = db.session.get(Character, character_id)
+    if not character:
+        return {
+            "success": False,
+            "message": "Character not found.",
+        }
+
+    attributes = character.attributes
+    if not attributes:
+        return {
+            "success": False,
+            "message": "Character attributes not found.",
+        }
+
+    inventory_blob = load_inventory_blob(character_id)
+    equipment = _get_equipment_state(inventory_blob)
+    slots = equipment.get("slots", {})
+    weapon_item = _find_main_hand_weapon(slots)
+    profile = _build_weapon_profile(weapon_item)
+    skill_level = _load_character_skill_level(character_id, profile["skill_name"])
+    character_level = max(1, min(100, int(character.level or 1)))
+    item_level = int(profile["item_level"])
+    scaling_contributions = {}
+    weighted_attribute_score = 0.0
+    for attribute_name, multiplier in profile["scaling"].items():
+        contribution = _attribute_value(attributes, attribute_name) * float(multiplier)
+        scaling_contributions[attribute_name] = round(contribution, 3)
+        weighted_attribute_score += contribution
+
+    weighted_attribute_score = max(0.0, min(100.0, weighted_attribute_score))
+    level_factor = float(character_level) ** 1.05
+    weapon_factor = 0.35 + 0.65 * ((float(item_level) / 100.0) ** 1.15)
+    skill_factor = 0.40 + 0.60 * ((max(0.0, min(100.0, float(skill_level))) / 100.0) ** 1.10)
+    attribute_factor = 0.55 + 0.45 * ((weighted_attribute_score / 100.0) ** 1.05)
+    total_factor = level_factor * weapon_factor * skill_factor * attribute_factor
+    base_min = int(profile["base_damage_min"])
+    base_max = int(profile["base_damage_max"])
+    final_min = max(1, int(round(base_min * total_factor)))
+    final_max = max(final_min, int(round(base_max * total_factor)))
+
+    return {
+        "success": True,
+        "weapon": {
+            "item_id": weapon_item.get("item_id") if weapon_item else None,
+            "name": weapon_item.get("name") if weapon_item else "Unarmed",
+            "weapon_family": profile["weapon_family"],
+            "item_level": item_level,
+            "attack_mode": profile["attack_mode"],
+            "damage_type": profile["damage_type"],
+            "skill_name": profile["skill_name"],
+            "skill_level": skill_level,
+        },
+        "damage": {
+            "base_min": base_min,
+            "base_max": base_max,
+            "final_min": final_min,
+            "final_max": final_max,
+        },
+        "scaling": {
+            "weights": profile["scaling"],
+            "attribute_values": {
+                key: _attribute_value(attributes, key)
+                for key in profile["scaling"]
+            },
+            "contributions": scaling_contributions,
+            "weighted_attribute_score": round(weighted_attribute_score, 3),
+            "level_factor": round(level_factor, 4),
+            "weapon_factor": round(weapon_factor, 4),
+            "skill_factor": round(skill_factor, 4),
+            "attribute_factor": round(attribute_factor, 4),
+            "total_factor": round(total_factor, 4),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

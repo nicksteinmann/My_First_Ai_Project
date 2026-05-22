@@ -1,6 +1,6 @@
 """Equipment tool definitions and dispatcher."""
 
-from .service import equip_item, get_equipment, unequip_item
+from .service import equip_item, get_attack_profile, get_equipment, unequip_item
 
 
 EQUIPMENT_TOOL_DEFINITIONS = [
@@ -67,6 +67,21 @@ EQUIPMENT_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_attack_profile",
+            "description": (
+                "Return backend-calculated weapon attack profile including weapon family, "
+                "damage range, attribute scaling and skill contribution for the currently equipped weapon."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -96,6 +111,11 @@ def execute_equipment_tool(character_id: int, tool_name: str, arguments: dict):
             target_container_id=arguments.get("target_container_id"),
         )
         return result.to_dict()
+
+    if tool_name == "get_attack_profile":
+        response = get_attack_profile(character_id)
+        response["tool"] = "get_attack_profile"
+        return response
 
     return {
         "success": False,
