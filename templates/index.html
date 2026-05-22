@@ -168,9 +168,31 @@
                 <div class="chat-header-row">
                     <h2>Adventure Chat</h2>
 
-                    <div class="chat-model-select">
-                        <label for="providerSelect">KI Model:</label>
-                        <select id="providerSelect"></select>
+                    <div class="audio-control" id="backgroundAudioControl">
+                        <audio id="backgroundMusic" src="{{ url_for('static', filename='Kings_Feast.mp3') }}" loop preload="auto"></audio>
+                        <button
+                            id="audioToggle"
+                            class="audio-toggle"
+                            type="button"
+                            aria-label="Toggle background music"
+                            title="Toggle background music"
+                        >
+                            <svg class="audio-icon audio-icon-on" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 9v6h4l5 4V5L8 9H4zm12.5-1.5-1.1 1.1A4.8 4.8 0 0 1 17 12a4.8 4.8 0 0 1-1.6 3.4l1.1 1.1A6.3 6.3 0 0 0 18.5 12a6.3 6.3 0 0 0-2-4.5zm2.2-2.2-1.1 1.1A8 8 0 0 1 20 12a8 8 0 0 1-2.4 5.6l1.1 1.1A9.5 9.5 0 0 0 21.5 12a9.5 9.5 0 0 0-2.8-6.7z"></path>
+                            </svg>
+                            <svg class="audio-icon audio-icon-off" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 9v6h4l5 4V5L8 9H4zm12.2 3 2.3 2.3 1.1-1.1-2.3-2.3 2.3-2.3-1.1-1.1-2.3 2.3-2.3-2.3-1.1 1.1 2.3 2.3-2.3 2.3 1.1 1.1 2.3-2.3z"></path>
+                            </svg>
+                        </button>
+                        <label class="audio-volume-label" for="audioVolume">Volume</label>
+                        <input id="audioVolume" class="audio-volume" type="range" min="0" max="100" step="1" value="18">
+                    </div>
+
+                    <div class="chat-header-actions">
+                        <div class="chat-model-select">
+                            <label for="providerSelect">KI Model:</label>
+                            <select id="providerSelect"></select>
+                        </div>
                     </div>
                 </div>
 
@@ -294,6 +316,9 @@
 
 <script>
     let isSending = false;
+    const BACKGROUND_AUDIO_DEFAULT_VOLUME = 0.18;
+    const BACKGROUND_AUDIO_VOLUME_KEY = "aiPenPaper.backgroundMusic.volume";
+    const BACKGROUND_AUDIO_MUTED_KEY = "aiPenPaper.backgroundMusic.muted";
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -372,6 +397,69 @@
         } catch (err) {
             console.error("Could not load provider status.");
         }
+    }
+
+    function initBackgroundAudio() {
+        const audio = document.getElementById("backgroundMusic");
+        const toggle = document.getElementById("audioToggle");
+        const volume = document.getElementById("audioVolume");
+        if (!audio || !toggle || !volume) return;
+
+        const storedVolume = Number(localStorage.getItem(BACKGROUND_AUDIO_VOLUME_KEY));
+        const initialVolume = Number.isFinite(storedVolume)
+            ? Math.max(0, Math.min(1, storedVolume))
+            : BACKGROUND_AUDIO_DEFAULT_VOLUME;
+        const initialMuted = localStorage.getItem(BACKGROUND_AUDIO_MUTED_KEY) === "true";
+
+        audio.volume = initialVolume;
+        audio.muted = initialMuted;
+        volume.value = String(Math.round(initialVolume * 100));
+
+        function updateAudioUi() {
+            const isMutedOrSilent = audio.muted || audio.volume === 0 || audio.paused;
+            toggle.classList.toggle("is-muted", isMutedOrSilent);
+            toggle.setAttribute("aria-pressed", String(!isMutedOrSilent));
+            toggle.title = isMutedOrSilent ? "Turn background music on" : "Mute background music";
+        }
+
+        async function playAudioIfNeeded() {
+            if (!audio.paused) return true;
+            try {
+                await audio.play();
+                return true;
+            } catch (err) {
+                console.warn("Background music playback needs user interaction.");
+                return false;
+            }
+        }
+
+        toggle.addEventListener("click", async () => {
+            if (audio.paused) {
+                audio.muted = false;
+                localStorage.setItem(BACKGROUND_AUDIO_MUTED_KEY, "false");
+                await playAudioIfNeeded();
+                updateAudioUi();
+                return;
+            }
+
+            audio.muted = !audio.muted;
+            localStorage.setItem(BACKGROUND_AUDIO_MUTED_KEY, String(audio.muted));
+            updateAudioUi();
+        });
+
+        volume.addEventListener("input", () => {
+            const nextVolume = Math.max(0, Math.min(1, Number(volume.value) / 100));
+            audio.volume = nextVolume;
+            audio.muted = nextVolume === 0;
+            localStorage.setItem(BACKGROUND_AUDIO_VOLUME_KEY, String(nextVolume));
+            localStorage.setItem(BACKGROUND_AUDIO_MUTED_KEY, String(audio.muted));
+            updateAudioUi();
+        });
+
+        audio.addEventListener("play", updateAudioUi);
+        audio.addEventListener("pause", updateAudioUi);
+        audio.addEventListener("volumechange", updateAudioUi);
+        updateAudioUi();
     }
 
         function updateAdventureState(character) {
@@ -709,6 +797,7 @@
     }
 
     loadProviders();
+    initBackgroundAudio();
     fitEquipmentLabels();
 
     const chatBox = document.getElementById("chat");
