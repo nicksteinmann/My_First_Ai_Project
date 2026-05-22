@@ -75,6 +75,12 @@ BASE_RESOURCE_GAIN_PER_LEVEL = {
     "energy": 1,
 }
 
+RESOURCE_CURVE_EXPONENTS = {
+    "hp": 0.96,
+    "mana": 0.90,
+    "energy": 0.88,
+}
+
 CLASS_RESOURCE_MULTIPLIERS = {
     "Knight": {
         "hp": 1.4,

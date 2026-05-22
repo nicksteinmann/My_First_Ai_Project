@@ -15,6 +15,7 @@ from .constants import (
     CLASS_RESOURCE_MULTIPLIERS,
     LEVEL_RENOWN_TIERS,
     MAX_CHARACTER_LEVEL,
+    RESOURCE_CURVE_EXPONENTS,
     XP_BASE_COST,
     XP_CURVE_EXPONENT,
 )
@@ -153,18 +154,39 @@ def _resource_gain_for_level(character: Character) -> Dict[str, int]:
 
 
 def _apply_level_up_resource_gains(character: Character, levels_gained: int) -> Dict[str, int]:
-    """Increase max resources and partially refill them on level-up."""
+    """Increase max resources and partially refill them on level-up.
+
+    Uses non-linear curves, anchored to previous max values, so scaling
+    accelerates at higher levels without hard resets.
+    """
 
     resources = _get_or_create_resources(character)
-    per_level_gains = _resource_gain_for_level(character)
-    total_gains = {
-        resource_name: value * levels_gained
-        for resource_name, value in per_level_gains.items()
-    }
+    old_level = max(1, int(character.level or 1) - int(levels_gained))
+    new_level = max(old_level, int(character.level or old_level))
+    multipliers = CLASS_RESOURCE_MULTIPLIERS.get(character.class_name, {})
 
-    resources.hp_max = int(resources.hp_max) + total_gains["hp"]
-    resources.mana_max = int(resources.mana_max) + total_gains["mana"]
-    resources.energy_max = int(resources.energy_max) + total_gains["energy"]
+    def _scaled_max(old_max: int, resource_key: str) -> int:
+        exponent = float(RESOURCE_CURVE_EXPONENTS.get(resource_key, 1.0))
+        class_multiplier = float(multipliers.get(resource_key, 1.0))
+        class_scalar = max(0.35, class_multiplier)
+        old_curve = max(1.0, (float(old_level) ** exponent) * class_scalar)
+        new_curve = max(old_curve, (float(new_level) ** exponent) * class_scalar)
+        scaled = int(round(float(old_max) * (new_curve / old_curve)))
+        return max(int(old_max), scaled)
+
+    old_hp_max = int(resources.hp_max)
+    old_mana_max = int(resources.mana_max)
+    old_energy_max = int(resources.energy_max)
+
+    resources.hp_max = _scaled_max(old_hp_max, "hp")
+    resources.mana_max = _scaled_max(old_mana_max, "mana")
+    resources.energy_max = _scaled_max(old_energy_max, "energy")
+
+    total_gains = {
+        "hp": int(resources.hp_max) - old_hp_max,
+        "mana": int(resources.mana_max) - old_mana_max,
+        "energy": int(resources.energy_max) - old_energy_max,
+    }
 
     if character.status != "dead":
         resources.hp_current = min(int(resources.hp_current) + total_gains["hp"], int(resources.hp_max))

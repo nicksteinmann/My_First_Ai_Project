@@ -3,7 +3,7 @@ import unittest
 
 from flask import Flask
 
-from models import Character, User, db
+from models import Character, CharacterAttribute, User, db
 from services.attributes.tools import execute_attribute_tool
 from services.currency.tools import execute_currency_tool
 from services.equipment.tools import execute_equipment_tool
@@ -78,6 +78,16 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         db.drop_all()
         db.engine.dispose()
         self.app_context.pop()
+
+    def _ensure_attributes(self):
+        self.character = db.session.get(Character, self.character.id)
+        if self.character.attributes:
+            return self.character.attributes
+        attributes = CharacterAttribute(character_id=self.character.id)
+        db.session.add(attributes)
+        db.session.commit()
+        self.character = db.session.get(Character, self.character.id)
+        return self.character.attributes
 
     def test_currency_tools_add_get_remove_and_reject_overdraft(self):
         added = execute_currency_tool(
@@ -204,6 +214,126 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         )
         self.assertTrue(unequipped["success"], unequipped)
         self.assertIsNone(unequipped["equipment"]["slots"]["main_hand"])
+
+    def test_attack_profile_prefers_dexterity_for_rapier_family(self):
+        attributes = self._ensure_attributes()
+        attributes.strength = 4
+        attributes.dexterity = 14
+        db.session.commit()
+
+        add_weapon = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "finesse_rapier",
+                    "name": "Fine Rapier",
+                    "description": "A nimble thrusting blade.",
+                    "size": "medium",
+                    "volume": 2.0,
+                    "weight": 1.5,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                    "weapon_family": "rapier",
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(add_weapon["success"], add_weapon)
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "finesse_rapier", "slot": "main_hand"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        profile = execute_equipment_tool(self.character.id, "get_attack_profile", {})
+        self.assertTrue(profile["success"], profile)
+        self.assertEqual("rapier", profile["weapon"]["weapon_family"])
+        self.assertEqual("Swordsmanship", profile["weapon"]["skill_name"])
+        self.assertGreater(
+            profile["scaling"]["contributions"]["dexterity"],
+            profile["scaling"]["contributions"]["strength"],
+        )
+
+    def test_attack_profile_prefers_strength_for_axe_hammer_family(self):
+        attributes = self._ensure_attributes()
+        attributes.strength = 16
+        attributes.dexterity = 5
+        db.session.commit()
+
+        add_weapon = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "war_axe",
+                    "name": "War Axe",
+                    "description": "A heavy axe for brutal strikes.",
+                    "size": "medium",
+                    "volume": 2.5,
+                    "weight": 3.5,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                    "weapon_family": "axe_hammer",
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(add_weapon["success"], add_weapon)
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "war_axe", "slot": "main_hand"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        profile = execute_equipment_tool(self.character.id, "get_attack_profile", {})
+        self.assertTrue(profile["success"], profile)
+        self.assertEqual("axe_hammer", profile["weapon"]["weapon_family"])
+        self.assertEqual("Axes & Hammers", profile["weapon"]["skill_name"])
+        self.assertGreater(
+            profile["scaling"]["contributions"]["strength"],
+            profile["scaling"]["contributions"].get("constitution", 0),
+        )
+
+    def test_attack_profile_uses_improvised_fallback_for_unknown_weapon(self):
+        self._ensure_attributes()
+        add_weapon = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "chair_leg",
+                    "name": "Broken Chair Leg",
+                    "description": "An improvised weapon from furniture.",
+                    "size": "small",
+                    "volume": 1.0,
+                    "weight": 1.2,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(add_weapon["success"], add_weapon)
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "chair_leg", "slot": "main_hand"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        profile = execute_equipment_tool(self.character.id, "get_attack_profile", {})
+        self.assertTrue(profile["success"], profile)
+        self.assertEqual("improvised", profile["weapon"]["weapon_family"])
+        self.assertEqual("Athletics", profile["weapon"]["skill_name"])
 
     def test_resource_tools_set_damage_heal_and_life_status(self):
         lowered = execute_resource_tool(
