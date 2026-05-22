@@ -2,6 +2,27 @@ MAX_SKILL_LEVEL = 100
 SKILL_XP_BASE_COST = 100
 SKILL_XP_CURVE_EXPONENT = 1.55
 MAX_CUSTOM_SKILLS_PER_CHARACTER = 20
+ALLOWED_SKILL_DOMAINS = (
+    "combat",
+    "social",
+    "crafting",
+    "exploration",
+    "knowledge",
+    "survival",
+    "stealth",
+    "magic",
+    "trade_service",
+    "utility",
+    "general",
+)
+
+CATEGORY_DEFAULT_DOMAINS = {
+    "combat": ["combat", "general"],
+    "social": ["social", "trade_service", "general"],
+    "knowledge": ["knowledge", "crafting", "general"],
+    "utility": ["utility", "stealth", "survival", "exploration", "general"],
+    "custom": ["general"],
+}
 
 LEGACY_CORE_SKILL_ALIASES = {
     "Schwertkampf": "Swordsmanship",

@@ -6,12 +6,15 @@ that does not fit a core skill. XP is additive; temporary penalties should be
 handled later through modifiers instead of reducing skill XP.
 """
 
+import json
 import re
 from typing import Any, Dict, List, Optional
 
 from models import Character, CharacterSkill, SkillDefinition, db
 
 from .constants import (
+    ALLOWED_SKILL_DOMAINS,
+    CATEGORY_DEFAULT_DOMAINS,
     CORE_SKILLS,
     LEGACY_CORE_SKILL_ALIASES,
     MAX_CUSTOM_SKILLS_PER_CHARACTER,
@@ -89,6 +92,108 @@ def _coerce_short_code(value: Optional[str], fallback_name: str) -> str:
     return (fallback[:3] or "CUS").ljust(3, "X")
 
 
+def _normalize_attribute_key(value: str) -> Optional[str]:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "str": "strength",
+        "staerke": "strength",
+        "starke": "strength",
+        "dex": "dexterity",
+        "agility": "dexterity",
+        "con": "constitution",
+        "int": "intelligence",
+        "per": "perception",
+        "cha": "charisma",
+    }
+    normalized = aliases.get(normalized, normalized)
+    valid = {"strength", "dexterity", "constitution", "intelligence", "perception", "charisma"}
+    return normalized if normalized in valid else None
+
+
+def _normalize_secondary_attributes(raw_value: Any, primary_attribute: str) -> List[str]:
+    if raw_value in (None, ""):
+        return []
+    if isinstance(raw_value, str):
+        raw_value = [raw_value]
+    if not isinstance(raw_value, list):
+        return []
+
+    normalized = []
+    seen = set()
+    for entry in raw_value:
+        attribute_key = _normalize_attribute_key(str(entry))
+        if not attribute_key or attribute_key == primary_attribute or attribute_key in seen:
+            continue
+        seen.add(attribute_key)
+        normalized.append(attribute_key)
+    return normalized
+
+
+def _normalize_aliases(raw_aliases: Any, canonical_name: str) -> List[str]:
+    if raw_aliases in (None, ""):
+        return []
+    if isinstance(raw_aliases, str):
+        raw_aliases = [raw_aliases]
+    if not isinstance(raw_aliases, list):
+        return []
+
+    canonical_key = _skill_name_key(canonical_name)
+    aliases = []
+    seen = set()
+    for alias in raw_aliases:
+        alias_name = _normalize_skill_name(str(alias))
+        if len(alias_name) < 2:
+            continue
+        alias_key = _skill_name_key(alias_name)
+        if not alias_key or alias_key == canonical_key or alias_key in seen:
+            continue
+        seen.add(alias_key)
+        aliases.append(alias_name)
+    return aliases
+
+
+def _normalize_allowed_domains(raw_domains: Any, category: str) -> List[str]:
+    if raw_domains in (None, ""):
+        default_domains = CATEGORY_DEFAULT_DOMAINS.get((category or "").strip().lower(), ["general"])
+        return list(default_domains)
+    if isinstance(raw_domains, str):
+        raw_domains = [raw_domains]
+    if not isinstance(raw_domains, list):
+        return ["general"]
+
+    normalized = []
+    seen = set()
+    for domain in raw_domains:
+        normalized_domain = (str(domain or "").strip().lower().replace("-", "_"))
+        if normalized_domain not in ALLOWED_SKILL_DOMAINS:
+            continue
+        if normalized_domain in seen:
+            continue
+        seen.add(normalized_domain)
+        normalized.append(normalized_domain)
+
+    return normalized or ["general"]
+
+
+def _load_json_list(value: Any) -> List[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return []
+        if isinstance(decoded, list):
+            return [str(item) for item in decoded]
+    return []
+
+
+def _serialize_json_list(values: List[str]) -> str:
+    return json.dumps(list(values or []), ensure_ascii=False)
+
+
 def _get_character(character_id: int) -> Character:
     character = db.session.get(Character, character_id)
     if not character:
@@ -102,6 +207,9 @@ def _find_skill_definition(skill_name: str) -> Optional[SkillDefinition]:
     normalized_key = _skill_name_key(skill_name)
     for skill in SkillDefinition.query.filter_by(is_active=True).all():
         if _skill_name_key(skill.name) == normalized_key:
+            return skill
+        alias_keys = {_skill_name_key(alias) for alias in _load_json_list(skill.aliases_json)}
+        if normalized_key in alias_keys:
             return skill
     return None
 
@@ -165,6 +273,11 @@ def ensure_core_skill_definitions() -> None:
         if existing:
             existing.category = skill_data["category"]
             existing.linked_attribute = skill_data["linked_attribute"]
+            existing.secondary_attributes_json = _serialize_json_list(skill_data.get("secondary_attributes", []))
+            existing.aliases_json = _serialize_json_list(_legacy_names_for_core_skill(skill_data["name"]))
+            existing.allowed_domains_json = _serialize_json_list(
+                CATEGORY_DEFAULT_DOMAINS.get(skill_data["category"].lower(), ["general"])
+            )
             existing.description = skill_data["description"]
             existing.icon = skill_data["icon"]
             existing.short_code = skill_data["short_code"]
@@ -178,6 +291,11 @@ def ensure_core_skill_definitions() -> None:
             name=skill_data["name"],
             category=skill_data["category"],
             linked_attribute=skill_data["linked_attribute"],
+            secondary_attributes_json=_serialize_json_list(skill_data.get("secondary_attributes", [])),
+            aliases_json=_serialize_json_list(_legacy_names_for_core_skill(skill_data["name"])),
+            allowed_domains_json=_serialize_json_list(
+                CATEGORY_DEFAULT_DOMAINS.get(skill_data["category"].lower(), ["general"])
+            ),
             description=skill_data["description"],
             icon=skill_data["icon"],
             short_code=skill_data["short_code"],
@@ -266,6 +384,9 @@ def _serialize_skill_definition(skill: SkillDefinition, character_skill: Optiona
         "name": skill.name,
         "category": skill.category,
         "linked_attribute": skill.linked_attribute,
+        "secondary_attributes": _load_json_list(skill.secondary_attributes_json),
+        "aliases": _load_json_list(skill.aliases_json),
+        "allowed_domains": _load_json_list(skill.allowed_domains_json),
         "description": skill.description or "",
         "icon": icon,
         "short_code": skill.short_code or _coerce_short_code(None, skill.name),
@@ -328,6 +449,9 @@ def create_custom_skill(
     character_id: int,
     name: str,
     linked_attribute: str,
+    secondary_attributes: Optional[List[str]] = None,
+    aliases: Optional[List[str]] = None,
+    allowed_domains: Optional[List[str]] = None,
     description: Optional[str] = None,
     icon: Optional[str] = None,
     short_code: Optional[str] = None,
@@ -342,6 +466,17 @@ def create_custom_skill(
     skill_name = _normalize_skill_name(name)
     if len(skill_name) < 3:
         return {"success": False, "message": "Custom skill name is too short."}
+
+    normalized_primary_attribute = _normalize_attribute_key(linked_attribute or "")
+    if not normalized_primary_attribute:
+        return {"success": False, "message": f"Unknown linked attribute: {linked_attribute}"}
+
+    normalized_secondary_attributes = _normalize_secondary_attributes(
+        secondary_attributes,
+        normalized_primary_attribute,
+    )
+    normalized_allowed_domains = _normalize_allowed_domains(allowed_domains, "custom")
+    normalized_aliases = _normalize_aliases(aliases, skill_name)
 
     existing = _find_skill_definition(skill_name)
     if existing:
@@ -370,10 +505,40 @@ def create_custom_skill(
             "message": f"Custom skill limit reached ({MAX_CUSTOM_SKILLS_PER_CHARACTER}).",
         }
 
+    alias_collision_target = None
+    normalized_candidate_keys = {
+        _skill_name_key(skill_name),
+        *(_skill_name_key(alias) for alias in normalized_aliases),
+    }
+    for candidate in SkillDefinition.query.filter_by(is_active=True).all():
+        candidate_keys = {_skill_name_key(candidate.name)}
+        candidate_keys.update(_skill_name_key(alias) for alias in _load_json_list(candidate.aliases_json))
+        if normalized_candidate_keys.intersection(candidate_keys):
+            alias_collision_target = candidate
+            break
+
+    if alias_collision_target:
+        character_skill = _get_or_create_character_skill(character, alias_collision_target)
+        db.session.commit()
+        return {
+            "success": True,
+            "message": f"Skill alias matched existing skill: {alias_collision_target.name}",
+            "skill": serialize_character_skills(character.id),
+            "details": {
+                "skill_id": alias_collision_target.id,
+                "character_skill_id": character_skill.id,
+                "created": False,
+                "alias_match": True,
+            },
+        }
+
     skill = SkillDefinition(
         name=skill_name,
         category="Custom",
-        linked_attribute=linked_attribute,
+        linked_attribute=normalized_primary_attribute,
+        secondary_attributes_json=_serialize_json_list(normalized_secondary_attributes),
+        aliases_json=_serialize_json_list(normalized_aliases),
+        allowed_domains_json=_serialize_json_list(normalized_allowed_domains),
         description=description or f"Custom learned skill: {skill_name}.",
         icon=icon,
         short_code=_coerce_short_code(short_code, skill_name),
@@ -404,6 +569,9 @@ def add_skill_xp(
     reason: Optional[str] = None,
     allow_create: bool = False,
     linked_attribute: Optional[str] = None,
+    secondary_attributes: Optional[List[str]] = None,
+    aliases: Optional[List[str]] = None,
+    allowed_domains: Optional[List[str]] = None,
     category: str = "Custom",
     icon: Optional[str] = None,
     short_code: Optional[str] = None,
@@ -422,6 +590,9 @@ def add_skill_xp(
             character_id=character.id,
             name=skill_name,
             linked_attribute=linked_attribute or "intelligence",
+            secondary_attributes=secondary_attributes,
+            aliases=aliases,
+            allowed_domains=allowed_domains,
             description=f"Custom {category.lower()} skill created through gameplay.",
             icon=icon,
             short_code=short_code,
