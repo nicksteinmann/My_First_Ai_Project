@@ -301,11 +301,30 @@ class BackendToolExecutorTestCase(unittest.TestCase):
             {
                 "name": "Cartography",
                 "linked_attribute": "intelligence",
+                "secondary_attributes": ["perception"],
+                "aliases": ["Map Reading"],
+                "allowed_domains": ["exploration", "knowledge"],
                 "description": "Making and reading maps.",
             },
         )
         self.assertTrue(custom["success"], custom)
         self.assertTrue(custom["details"]["created"])
+        created_skill = next(skill for skill in custom["skill"] if skill["name"] == "Cartography")
+        self.assertEqual(["perception"], created_skill["secondary_attributes"])
+        self.assertIn("Map Reading", created_skill["aliases"])
+        self.assertEqual(["exploration", "knowledge"], created_skill["allowed_domains"])
+
+        alias_match = execute_skill_tool(
+            self.character.id,
+            "create_custom_skill",
+            {
+                "name": "Map Reading",
+                "linked_attribute": "intelligence",
+            },
+        )
+        self.assertTrue(alias_match["success"], alias_match)
+        self.assertFalse(alias_match["details"]["created"])
+        self.assertEqual(created_skill["id"], alias_match["details"]["skill_id"])
 
         created_xp = execute_skill_tool(
             self.character.id,
@@ -315,10 +334,15 @@ class BackendToolExecutorTestCase(unittest.TestCase):
                 "amount": 25,
                 "allow_create": True,
                 "linked_attribute": "perception",
+                "secondary_attributes": ["intelligence"],
+                "allowed_domains": ["exploration"],
             },
         )
         self.assertTrue(created_xp["success"], created_xp)
         self.assertEqual("Foraging", created_xp["details"]["skill_name"])
+        created_foraging = next(skill for skill in created_xp["skills"] if skill["name"] == "Foraging")
+        self.assertEqual(["intelligence"], created_foraging["secondary_attributes"])
+        self.assertEqual(["exploration"], created_foraging["allowed_domains"])
 
     def test_status_effect_tools_apply_refresh_get_and_remove(self):
         applied = execute_status_effect_tool(

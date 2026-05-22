@@ -29,6 +29,18 @@ SKILL_TOOL_DEFINITIONS = [
                     "reason": {"type": "string"},
                     "allow_create": {"type": "boolean"},
                     "linked_attribute": {"type": "string"},
+                    "secondary_attributes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "aliases": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "allowed_domains": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "category": {"type": "string"},
                     "icon": {"type": "string"},
                     "short_code": {"type": "string"},
@@ -47,6 +59,18 @@ SKILL_TOOL_DEFINITIONS = [
                 "properties": {
                     "name": {"type": "string"},
                     "linked_attribute": {"type": "string"},
+                    "secondary_attributes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "aliases": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "allowed_domains": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "description": {"type": "string"},
                     "icon": {"type": "string"},
                     "short_code": {"type": "string"},
@@ -76,6 +100,9 @@ def execute_skill_tool(character_id: int, tool_name: str, arguments: dict):
             reason=arguments.get("reason"),
             allow_create=bool(arguments.get("allow_create", False)),
             linked_attribute=arguments.get("linked_attribute"),
+            secondary_attributes=arguments.get("secondary_attributes"),
+            aliases=arguments.get("aliases"),
+            allowed_domains=arguments.get("allowed_domains"),
             category=arguments.get("category", "Custom"),
             icon=arguments.get("icon"),
             short_code=arguments.get("short_code"),
@@ -86,6 +113,9 @@ def execute_skill_tool(character_id: int, tool_name: str, arguments: dict):
             character_id=character_id,
             name=arguments.get("name", ""),
             linked_attribute=arguments.get("linked_attribute", "intelligence"),
+            secondary_attributes=arguments.get("secondary_attributes"),
+            aliases=arguments.get("aliases"),
+            allowed_domains=arguments.get("allowed_domains"),
             description=arguments.get("description"),
             icon=arguments.get("icon"),
             short_code=arguments.get("short_code"),

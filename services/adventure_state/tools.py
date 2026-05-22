@@ -220,6 +220,38 @@ def _normalize_secondary_attributes(raw_secondary_attributes):
     return normalized
 
 
+def _load_json_string_list(raw_value):
+    if raw_value in (None, ""):
+        return []
+    if isinstance(raw_value, list):
+        return [str(item) for item in raw_value]
+    if isinstance(raw_value, str):
+        try:
+            decoded = json.loads(raw_value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        if isinstance(decoded, list):
+            return [str(item) for item in decoded]
+    return []
+
+
+def _domain_for_action_type(action_type: str) -> str:
+    normalized = (action_type or "general").strip().lower().replace("-", "_")
+    if normalized in {"combat", "combat_action", "attack", "defense"}:
+        return "combat"
+    if normalized in {"social", "conversation", "persuasion", "intimidation"}:
+        return "social"
+    if normalized in {"crafting", "repair", "smithing", "alchemy"}:
+        return "crafting"
+    if normalized in {"travel", "exploration", "survival", "tracking"}:
+        return "exploration"
+    if normalized in {"arcane_lore", "knowledge", "research", "history"}:
+        return "knowledge"
+    if normalized in {"lockpicking", "utility", "thievery"}:
+        return "utility"
+    return "general"
+
+
 def _normalized_check_value(value):
     value = max(0.0, float(value or 0.0))
     return 100.0 * math.log1p(value) / math.log(CHECK_NORM_MAX)
@@ -235,6 +267,10 @@ def _resolve_skill_and_attribute_context(character_id: int, skill_name: str):
         if _skill_name_key(candidate.name) == normalized_skill_name_key:
             skill_definition = candidate
             break
+        aliases = _load_json_string_list(getattr(candidate, "aliases_json", None))
+        if normalized_skill_name_key in {_skill_name_key(alias) for alias in aliases}:
+            skill_definition = candidate
+            break
 
     if not skill_definition:
         return None, None
@@ -247,14 +283,24 @@ def _resolve_skill_and_attribute_context(character_id: int, skill_name: str):
     skill_level = int(character_skill.skill_level or 0) if character_skill else 0
 
     core_meta = _CORE_SKILL_META_BY_NAME_KEY.get(_skill_name_key(skill_definition.name), {})
+    skill_secondary_attributes = _normalize_secondary_attributes(
+        _load_json_string_list(getattr(skill_definition, "secondary_attributes_json", None))
+    )
     linked_attribute = _normalize_check_attribute(skill_definition.linked_attribute) or _normalize_check_attribute(
         core_meta.get("linked_attribute")
     )
-    secondary_attributes = _normalize_secondary_attributes(core_meta.get("secondary_attributes", []))
+    secondary_attributes = skill_secondary_attributes or _normalize_secondary_attributes(
+        core_meta.get("secondary_attributes", [])
+    )
+    allowed_domains = _load_json_string_list(getattr(skill_definition, "allowed_domains_json", None))
+    allowed_domains = [item.strip().lower().replace("-", "_") for item in allowed_domains if str(item).strip()]
+    if not allowed_domains:
+        allowed_domains = ["general"]
 
     return {
         "skill_definition": skill_definition,
         "skill_level": max(0, skill_level),
+        "allowed_domains": allowed_domains,
     }, {
         "linked_attribute": linked_attribute,
         "secondary_attributes": secondary_attributes,
@@ -945,6 +991,17 @@ def perform_check(
         skill_context, resolved_skill_context = _resolve_skill_and_attribute_context(character.id, skill_name)
         if not skill_context:
             return {"success": False, "error": f"Skill not found: {skill_name}"}
+        action_domain = _domain_for_action_type(action_type)
+        allowed_domains = list(skill_context.get("allowed_domains") or ["general"])
+        if action_domain not in allowed_domains and "general" not in allowed_domains:
+            skill_definition = skill_context["skill_definition"]
+            return {
+                "success": False,
+                "error": (
+                    f"Skill '{skill_definition.name}' is not allowed for action domain "
+                    f"'{action_domain}'. Allowed domains: {', '.join(allowed_domains)}."
+                ),
+            }
 
     resolved_primary_attribute = _normalize_check_attribute(primary_attribute)
     if not resolved_primary_attribute and resolved_skill_context:
@@ -1051,6 +1108,7 @@ def perform_check(
             "character_level_used": bool(include_character_level),
             "skill_name": skill_definition.name if skill_definition else None,
             "skill_level": skill_level,
+            "skill_allowed_domains": list(skill_context.get("allowed_domains") or ["general"]) if skill_context else [],
             "primary_attribute": {
                 "key": resolved_primary_attribute,
                 "value": primary_attribute_value,

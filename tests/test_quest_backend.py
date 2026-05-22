@@ -15,6 +15,7 @@ from models import (
     WorldTemplate,
     db,
 )
+from services.skills.service import create_custom_skill
 from services.adventure_state.tools import (
     advance_time,
     claim_quest_rewards,
@@ -504,6 +505,45 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertEqual("intelligence", check["primary_attribute"]["key"])
         self.assertEqual([], check["secondary_attributes"])
         self.assertEqual("Arcane Lore", check["skill_name"])
+
+    def test_perform_check_custom_skill_respects_allowed_domains(self):
+        created = create_custom_skill(
+            character_id=self.character.id,
+            name="Rune Tinkering",
+            linked_attribute="intelligence",
+            secondary_attributes=["dexterity"],
+            allowed_domains=["crafting"],
+        )
+        self.assertTrue(created["success"], created)
+        self._set_skill_level("Rune Tinkering", 30)
+
+        allowed = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Stabilize the rune housing",
+            action_type="crafting",
+            skill_name="Rune Tinkering",
+            challenge_level=40,
+            challenge_type="normal",
+            include_character_level=True,
+            forced_roll=15,
+        )
+        self.assertTrue(allowed["success"], allowed)
+        self.assertEqual(["crafting"], allowed["check"]["skill_allowed_domains"])
+        self.assertEqual("intelligence", allowed["check"]["primary_attribute"]["key"])
+        self.assertTrue(any(item["key"] == "dexterity" for item in allowed["check"]["secondary_attributes"]))
+
+        blocked = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Sweet-talk a city guard",
+            action_type="social",
+            skill_name="Rune Tinkering",
+            challenge_level=20,
+            challenge_type="easy",
+            include_character_level=True,
+            forced_roll=15,
+        )
+        self.assertFalse(blocked["success"], blocked)
+        self.assertIn("not allowed for action domain", blocked["error"])
 
     def test_quest_location_ids_serialize_coordinate_context(self):
         start = update_location(

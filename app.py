@@ -85,6 +85,15 @@ def ensure_sqlite_schema_compatibility() -> None:
         "icon": "ALTER TABLE skill_definitions ADD COLUMN icon VARCHAR(12)",
         "short_code": "ALTER TABLE skill_definitions ADD COLUMN short_code VARCHAR(8)",
         "is_custom": "ALTER TABLE skill_definitions ADD COLUMN is_custom BOOLEAN NOT NULL DEFAULT 0",
+        "secondary_attributes_json": (
+            "ALTER TABLE skill_definitions ADD COLUMN secondary_attributes_json TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "aliases_json": (
+            "ALTER TABLE skill_definitions ADD COLUMN aliases_json TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "allowed_domains_json": (
+            "ALTER TABLE skill_definitions ADD COLUMN allowed_domains_json TEXT NOT NULL DEFAULT '[]'"
+        ),
     }
 
     for column_name, statement in skill_column_statements.items():
