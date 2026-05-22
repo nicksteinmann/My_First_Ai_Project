@@ -339,6 +339,12 @@ State Changes:
     - Use create_custom_skill only when the activity is repeatable, learnable, broad enough, and no core skill fits.
     - Do not create duplicate custom skills for similar activities.
     - When a skill consumable is used, remove the consumed item from inventory and call the listed skill tool.
+- Use perform_check when action outcomes should be decided by backend logic instead of narration.
+    - Prefer perform_check for uncertain actions such as lockpicking, trap disarming, stealth risk, social persuasion/deception/intimidation, survival checks, difficult climbs, and risky crafting.
+    - If a known skill exists, pass skill_name.
+    - If no clear skill exists, pass a valid primary_attribute and optional secondary_attributes.
+    - Use challenge_level 1-100 and challenge_type (trivial/easy/normal/hard/expert/master/legendary) to describe task difficulty.
+    - Treat backend check results as truth. Narrate the returned outcome; do not overwrite success/failure by prose.
 - Use currency tools when money is gained, spent, lost, or received.
     - Use add_currency for gains
     - Use remove_currency for spending or loss

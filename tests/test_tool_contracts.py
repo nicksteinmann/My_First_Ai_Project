@@ -24,6 +24,7 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
                 "advance_time",
                 "spend_time",
                 "rest",
+                "perform_check",
                 "create_quest",
                 "validate_quest_progress",
                 "get_quest_details",
