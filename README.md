@@ -186,6 +186,7 @@ Tools:
 - advance_time
 - spend_time
 - rest
+- perform_check
 - create_quest
 - get_quest_details
 - update_quest_objective_progress
@@ -322,13 +323,29 @@ Tools:
 - get_equipment
 - equip_item
 - unequip_item
+- get_attack_profile
+- get_defense_profile
+- preview_attack_outcome
 
 Not yet implemented:
 
 - Advanced belt attachment rules beyond the current two-slot MVP
 - More detailed belt pouch size classes
-- Stat modifiers from equipment
+- Persistent equipment-derived effective stat overlays outside combat preview flows
 - More detailed clothing types such as dresses occupying multiple clothing slots
+
+Combat-oriented equipment foundation now implemented:
+
+- Weapon families with backend fallback for unknown/AI-generated weapons (`improvised`, `unarmed`)
+- Family-specific base damage and scaling profiles for melee, ranged, and magic archetypes
+- Item-level aware weapon progression
+- Non-linear combat scaling based on level, weapon level, skill level, and weighted attributes
+- Defense profile calculation with simultaneous dodge and block scoring
+- Armor-class behavior (`light`, `medium`, `heavy`) influencing dodge vs block tendencies
+- Clear-defense zero-damage rules in outcome preview:
+  - clear dodge win => 0 damage
+  - clear block win => 0 damage
+- Attack outcome preview for attacker vs defender probability checks, including strong level-gap behavior
 
 ### Resource System
 
@@ -371,7 +388,7 @@ Rules:
 - XP needed per next level uses a progressive curve: `100 * level^1.55`.
 - Level-ups can happen multiple times from one XP grant.
 - Level-ups increase HP, Mana, and Energy maximum values.
-- Class multipliers control how much each resource grows per level.
+- Resource growth now uses non-linear scaling curves (resource-specific exponents) anchored to previous max values, with class multipliers applied.
 - Current HP, Mana, and Energy also increase by the gained maximum amount when the character is alive.
 - Character level also derives a small Renown/Ruf tier for social context.
 - Renown can influence whether NPCs recognize the character or know rumors about them.
@@ -479,8 +496,14 @@ Rules:
 - Core skills are seeded at app startup.
 - Custom skills can be created when an activity is repeatable, learnable, broad enough, and no core skill fits.
 - Custom skills are stored in `skill_definitions` with `is_custom=True`.
+- Custom skill metadata now supports:
+  - aliases
+  - secondary attributes
+  - allowed check domains
 - Characters learn skills through `character_skills`.
 - Custom skill creation is limited per character to prevent uncontrolled growth.
+- Alias matching prevents near-duplicate skill creation when the same concept is requested under a different name.
+- `perform_check` enforces domain compatibility for registered skills and can reject invalid skill/domain combinations.
 - Skill chips use emoji for core skills and fall back to short codes for custom skills.
 
 Tools:
@@ -559,6 +582,15 @@ This prevents the technical fallback text from being shown to the player after s
 It also reduces accidental repeated state changes from old narration context.
 It keeps narration and backend state closer together when a model forgets a required tool call or ignores a failed tool result.
 
+### Music / UX
+
+Implemented:
+
+- Optional looping background music on the game page
+- Speaker mute/unmute control
+- Hover/expand volume slider interaction
+- Lower default playback volume for less intrusive long sessions
+
 ---
 
 ## UI
@@ -603,6 +635,9 @@ Working:
 - Container inventory
 - Currency system
 - Equipment MVP
+- Weapon attack profile calculation (family, scaling, item level, skill contribution, non-linear factors)
+- Defense profile calculation (dodge/block scoring, armor class weighting, armor-related bonuses)
+- Outcome probability preview for attacker vs defender (full/partial/zero-damage distribution)
 - Resource tools for HP / Mana / Energy
 - Character status sync when HP reaches 0
 - Status effect display and tools
@@ -623,13 +658,12 @@ Working:
 Known limitations:
 
 - No vector-based RAG or external knowledge retrieval yet
-- No stat modifiers from equipment yet
-- No advanced custom skill deduplication beyond normalized names yet
+- No full round-based combat action resolver yet (current state provides attack/defense profiles and outcome preview, not full battle turns)
+- No full custom-skill balancing layer yet (metadata and domain safety exist, but balancing policies are still being tuned)
 - No level-up choice or skill point spending yet
 - No automatic status-effect duration ticking yet
 - No status-effect stat/resource modifiers yet
-- No real skill check system yet
-- No combat system yet
+- No full enemy combat state machine yet (initiative, turn order, enemy AI actions, defeat/escape loops)
 - No NPC system yet
 - No merchant / trading system yet
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
@@ -645,11 +679,12 @@ Known limitations:
 
 High priority:
 
-- Equipment stat modifiers
+- Equipment stat modifiers for always-on effective character overlays (outside preview tools)
 - Direct attribute training rules
 - Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
 - Advanced belt and pouch attachment rules
+- Full combat turn resolution on top of attack/defense profiles
 - Skill checks with real gameplay impact
 - Level-up choices and skill point spending
 
