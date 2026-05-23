@@ -47,6 +47,8 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
                 "equip_item",
                 "unequip_item",
                 "get_attack_profile",
+                "get_defense_profile",
+                "preview_attack_outcome",
             ],
             "resources": [
                 "get_resources",

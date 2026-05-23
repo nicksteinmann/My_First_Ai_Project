@@ -1,6 +1,13 @@
 """Equipment tool definitions and dispatcher."""
 
-from .service import equip_item, get_attack_profile, get_equipment, unequip_item
+from .service import (
+    equip_item,
+    get_attack_profile,
+    get_defense_profile,
+    get_equipment,
+    preview_attack_outcome,
+    unequip_item,
+)
 
 
 EQUIPMENT_TOOL_DEFINITIONS = [
@@ -82,6 +89,41 @@ EQUIPMENT_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_defense_profile",
+            "description": (
+                "Return backend-calculated defense profile including dodge score, block score, armor rating, "
+                "and equipment defense bonuses."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "preview_attack_outcome",
+            "description": (
+                "Estimate attack outcome probabilities against another character using backend attack and defense "
+                "scores, including clear dodge/block zero-damage rules."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "defender_character_id": {
+                        "type": "integer",
+                        "description": "Target character id used for defense profile and probability preview.",
+                    },
+                },
+                "required": ["defender_character_id"],
+            },
+        },
+    },
 ]
 
 
@@ -115,6 +157,19 @@ def execute_equipment_tool(character_id: int, tool_name: str, arguments: dict):
     if tool_name == "get_attack_profile":
         response = get_attack_profile(character_id)
         response["tool"] = "get_attack_profile"
+        return response
+
+    if tool_name == "get_defense_profile":
+        response = get_defense_profile(character_id)
+        response["tool"] = "get_defense_profile"
+        return response
+
+    if tool_name == "preview_attack_outcome":
+        response = preview_attack_outcome(
+            attacker_character_id=character_id,
+            defender_character_id=int(arguments.get("defender_character_id")),
+        )
+        response["tool"] = "preview_attack_outcome"
         return response
 
     return {

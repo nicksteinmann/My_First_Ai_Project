@@ -161,6 +161,12 @@ WEAPON_NAME_KEYWORDS = (
     ("schwert", "sword"),
 )
 
+ARMOR_CLASS_BONUSES = {
+    "light": {"dodge_bonus": 8.0, "block_bonus": -4.0},
+    "medium": {"dodge_bonus": 2.0, "block_bonus": 2.0},
+    "heavy": {"dodge_bonus": -8.0, "block_bonus": 10.0},
+}
+
 
 class EquipmentOperationResult:
     """Result object shared by equip and unequip operations."""
@@ -413,6 +419,237 @@ def _load_character_skill_level(character_id: int, skill_name: str) -> int:
 
 def _attribute_value(attributes, key: str) -> int:
     return max(0, int(getattr(attributes, key, 0) or 0))
+
+
+def _extract_item_combat_stat(item: Dict[str, Any], key: str, fallback: float = 0.0) -> float:
+    combat_profile = item.get("combat_profile") if isinstance(item.get("combat_profile"), dict) else {}
+    if key in combat_profile:
+        return _coerce_float(combat_profile.get(key), fallback)
+    return _coerce_float(item.get(key), fallback)
+
+
+def _extract_item_armor_class(item: Dict[str, Any]) -> Optional[str]:
+    combat_profile = item.get("combat_profile") if isinstance(item.get("combat_profile"), dict) else {}
+    raw = combat_profile.get("armor_class", item.get("armor_class"))
+    normalized = str(raw or "").strip().lower()
+    return normalized if normalized in ARMOR_CLASS_BONUSES else None
+
+
+def _iter_equipped_items(slots: Dict[str, Any]):
+    seen = set()
+    for slot in EQUIPMENT_SLOTS:
+        item = slots.get(slot)
+        if not item or _is_placeholder(item):
+            continue
+        item_id = item.get("item_id") or f"{slot}:{item.get('name', '')}"
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        yield item
+
+
+def _load_multi_skill_levels(character_id: int, names: list[str]) -> Dict[str, int]:
+    wanted = {_skill_name_key(name): name for name in names if name}
+    levels = {name: 0 for name in names}
+    if not wanted:
+        return levels
+    for skill_def in SkillDefinition.query.filter_by(is_active=True).all():
+        key = _skill_name_key(skill_def.name)
+        canonical_name = wanted.get(key)
+        if not canonical_name:
+            continue
+        row = CharacterSkill.query.filter_by(character_id=character_id, skill_id=skill_def.id).first()
+        levels[canonical_name] = max(0, int(row.skill_level or 0)) if row else 0
+    return levels
+
+
+def get_defense_profile(character_id: int) -> Dict[str, Any]:
+    """Return defense-related combat profile from armor, shield, attributes and skills."""
+
+    character = db.session.get(Character, character_id)
+    if not character:
+        return {"success": False, "message": "Character not found."}
+
+    attributes = character.attributes
+    if not attributes:
+        return {"success": False, "message": "Character attributes not found."}
+
+    inventory_blob = load_inventory_blob(character_id)
+    equipment = _get_equipment_state(inventory_blob)
+    slots = equipment.get("slots", {})
+    items = list(_iter_equipped_items(slots))
+    skill_levels = _load_multi_skill_levels(character_id, ["Dodging", "Blocking"])
+    dodging_skill = skill_levels.get("Dodging", 0)
+    blocking_skill = skill_levels.get("Blocking", 0)
+
+    armor_rating_total = 0.0
+    item_dodge_bonus_total = 0.0
+    item_block_bonus_total = 0.0
+    block_threshold_bonus_total = 0.0
+    class_dodge_bonus_total = 0.0
+    class_block_bonus_total = 0.0
+
+    for item in items:
+        item_type = _normalized_item_type(item)
+        if item_type in {"armor", "shield", "helmet", "boots", "gloves"}:
+            armor_rating_total += max(0.0, _extract_item_combat_stat(item, "armor_rating", 0.0))
+        item_dodge_bonus_total += _extract_item_combat_stat(item, "dodge_bonus", 0.0)
+        item_block_bonus_total += _extract_item_combat_stat(item, "block_bonus", 0.0)
+        block_threshold_bonus_total += _extract_item_combat_stat(item, "block_threshold_bonus", 0.0)
+
+        armor_class = _extract_item_armor_class(item)
+        if armor_class:
+            class_dodge_bonus_total += ARMOR_CLASS_BONUSES[armor_class]["dodge_bonus"]
+            class_block_bonus_total += ARMOR_CLASS_BONUSES[armor_class]["block_bonus"]
+
+    dexterity = _attribute_value(attributes, "dexterity")
+    strength = _attribute_value(attributes, "strength")
+    constitution = _attribute_value(attributes, "constitution")
+    level = max(1, min(100, int(character.level or 1)))
+
+    dodge_score = (
+        12.0
+        + (dexterity * 1.15)
+        + (dodging_skill * 0.95)
+        + item_dodge_bonus_total
+        + class_dodge_bonus_total
+        + (level * 0.45)
+        - (armor_rating_total * 0.10)
+    )
+    block_score = (
+        10.0
+        + (strength * 0.55)
+        + (constitution * 0.95)
+        + (blocking_skill * 1.05)
+        + item_block_bonus_total
+        + class_block_bonus_total
+        + (level * 0.40)
+        + (armor_rating_total * 0.45)
+    )
+
+    return {
+        "success": True,
+        "level": level,
+        "armor": {
+            "armor_rating_total": round(armor_rating_total, 3),
+            "item_dodge_bonus_total": round(item_dodge_bonus_total, 3),
+            "item_block_bonus_total": round(item_block_bonus_total, 3),
+            "class_dodge_bonus_total": round(class_dodge_bonus_total, 3),
+            "class_block_bonus_total": round(class_block_bonus_total, 3),
+            "block_threshold_bonus_total": round(block_threshold_bonus_total, 3),
+        },
+        "skills": {
+            "dodging": dodging_skill,
+            "blocking": blocking_skill,
+        },
+        "scores": {
+            "dodge_score": round(dodge_score, 3),
+            "block_score": round(block_score, 3),
+            "best_defense_score": round(max(dodge_score, block_score), 3),
+            "best_defense_type": "dodge" if dodge_score >= block_score else "block",
+        },
+    }
+
+
+def preview_attack_outcome(attacker_character_id: int, defender_character_id: int) -> Dict[str, Any]:
+    """Preview outcome probabilities for attacker vs defender with clear dodge/block zero-damage rules."""
+
+    attack_profile = get_attack_profile(attacker_character_id)
+    if not attack_profile.get("success"):
+        return {"success": False, "message": attack_profile.get("message", "Attack profile unavailable.")}
+
+    defense_profile = get_defense_profile(defender_character_id)
+    if not defense_profile.get("success"):
+        return {"success": False, "message": defense_profile.get("message", "Defense profile unavailable.")}
+
+    attacker = db.session.get(Character, attacker_character_id)
+    defender = db.session.get(Character, defender_character_id)
+    if not attacker or not defender:
+        return {"success": False, "message": "Attacker or defender not found."}
+
+    offense_weighted_attribute = float(attack_profile["scaling"].get("weighted_attribute_score", 0.0))
+    offense_skill_level = float(attack_profile["weapon"].get("skill_level", 0))
+    offense_item_level = float(attack_profile["weapon"].get("item_level", 1))
+    attacker_level = max(1, min(100, int(attacker.level or 1)))
+    defender_level = max(1, min(100, int(defender.level or 1)))
+    level_delta = attacker_level - defender_level
+
+    attack_score = (
+        12.0
+        + (offense_weighted_attribute * 1.20)
+        + (offense_skill_level * 0.95)
+        + (offense_item_level * 0.70)
+        + (attacker_level * 0.70)
+    )
+    if level_delta > 0:
+        attack_score += (level_delta * 0.90)
+    elif level_delta < 0:
+        attack_score += (level_delta * 1.30)
+
+    dodge_score = float(defense_profile["scores"]["dodge_score"])
+    block_score = float(defense_profile["scores"]["block_score"])
+    block_threshold_bonus = float(defense_profile["armor"]["block_threshold_bonus_total"])
+
+    full_hit = 0
+    partial_hit = 0
+    zero_damage = 0
+    sample_size = 20 * 20
+    for attack_roll in range(1, 21):
+        for defense_roll in range(1, 21):
+            attack_total = attack_score + attack_roll
+            dodge_total = dodge_score + defense_roll
+            block_total = block_score + defense_roll
+            defense_total = max(dodge_total, block_total)
+            defense_type = "dodge" if dodge_total >= block_total else "block"
+            margin = attack_total - defense_total
+
+            if defense_type == "dodge" and dodge_total >= attack_total + 6:
+                zero_damage += 1
+                continue
+            if defense_type == "block" and block_total >= attack_total + 6 + block_threshold_bonus:
+                zero_damage += 1
+                continue
+
+            if margin >= 8:
+                full_hit += 1
+            elif margin >= 1:
+                partial_hit += 1
+            else:
+                partial_hit += 1
+
+    full_hit_pct = round((full_hit / sample_size) * 100.0, 2)
+    partial_hit_pct = round((partial_hit / sample_size) * 100.0, 2)
+    zero_damage_pct = round((zero_damage / sample_size) * 100.0, 2)
+
+    return {
+        "success": True,
+        "attacker": {
+            "character_id": attacker_character_id,
+            "name": attacker.name,
+            "level": attacker_level,
+        },
+        "defender": {
+            "character_id": defender_character_id,
+            "name": defender.name,
+            "level": defender_level,
+        },
+        "scores": {
+            "attack_score": round(attack_score, 3),
+            "dodge_score": round(dodge_score, 3),
+            "block_score": round(block_score, 3),
+            "level_delta": level_delta,
+        },
+        "probabilities": {
+            "full_hit_percent": full_hit_pct,
+            "partial_hit_percent": partial_hit_pct,
+            "zero_damage_percent": zero_damage_pct,
+        },
+        "rules": {
+            "clear_dodge_zero_damage": "dodge_total >= attack_total + 6",
+            "clear_block_zero_damage": "block_total >= attack_total + 6 + block_threshold_bonus",
+            "best_defense_selected": "max(dodge_total, block_total)",
+        },
+    }
 
 
 def get_attack_profile(character_id: int) -> Dict[str, Any]:

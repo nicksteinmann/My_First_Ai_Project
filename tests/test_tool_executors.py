@@ -70,7 +70,15 @@ class BackendToolExecutorTestCase(unittest.TestCase):
             inventory_json=json.dumps(_inventory_with_test_pack()),
             currency_json={"gold": 0, "silver": 0, "copper": 0},
         )
-        db.session.add_all([self.user, self.character])
+        self.defender = Character(
+            user=self.user,
+            name="Shield Bram",
+            race="human",
+            class_name="Knight",
+            inventory_json=json.dumps(_inventory_with_test_pack()),
+            currency_json={"gold": 0, "silver": 0, "copper": 0},
+        )
+        db.session.add_all([self.user, self.character, self.defender])
         db.session.commit()
 
     def tearDown(self):
@@ -88,6 +96,15 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         db.session.commit()
         self.character = db.session.get(Character, self.character.id)
         return self.character.attributes
+
+    def _ensure_attributes_for(self, character):
+        character = db.session.get(Character, character.id)
+        if character.attributes:
+            return character.attributes
+        attributes = CharacterAttribute(character_id=character.id)
+        db.session.add(attributes)
+        db.session.commit()
+        return db.session.get(Character, character.id).attributes
 
     def test_currency_tools_add_get_remove_and_reject_overdraft(self):
         added = execute_currency_tool(
@@ -334,6 +351,120 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         self.assertTrue(profile["success"], profile)
         self.assertEqual("improvised", profile["weapon"]["weapon_family"])
         self.assertEqual("Athletics", profile["weapon"]["skill_name"])
+
+    def test_defense_profile_and_preview_attack_outcome(self):
+        attacker_attr = self._ensure_attributes_for(self.character)
+        attacker_attr.strength = 6
+        attacker_attr.dexterity = 6
+        attacker_attr.constitution = 6
+        self.character.level = 1
+
+        defender_attr = self._ensure_attributes_for(self.defender)
+        defender_attr.strength = 30
+        defender_attr.dexterity = 24
+        defender_attr.constitution = 30
+        self.defender.level = 100
+        db.session.commit()
+
+        add_weapon = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "starter_club",
+                    "name": "Starter Club",
+                    "description": "Weak training weapon.",
+                    "size": "medium",
+                    "volume": 2.0,
+                    "weight": 2.0,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                    "weapon_family": "improvised",
+                    "item_level": 1,
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(add_weapon["success"], add_weapon)
+        equip_attacker = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "starter_club", "slot": "main_hand"},
+        )
+        self.assertTrue(equip_attacker["success"], equip_attacker)
+
+        defender_items = [
+            {
+                "item_id": "tower_shield",
+                "name": "Tower Shield",
+                "description": "Massive shield.",
+                "size": "medium",
+                "volume": 3.0,
+                "weight": 4.0,
+                "stackable": False,
+                "hand_usage": "one_handed",
+                "item_type": "shield",
+                "combat_profile": {
+                    "armor_rating": 16,
+                    "block_bonus": 20,
+                    "block_threshold_bonus": 8,
+                    "armor_class": "heavy",
+                },
+            },
+            {
+                "item_id": "heavy_plate",
+                "name": "Heavy Plate",
+                "description": "Heavy chest armor.",
+                "size": "medium",
+                "volume": 4.0,
+                "weight": 6.0,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "armor",
+                "slot_type": "torso_armor",
+                "combat_profile": {
+                    "armor_rating": 20,
+                    "block_bonus": 12,
+                    "dodge_bonus": -6,
+                    "armor_class": "heavy",
+                },
+            },
+        ]
+
+        for item in defender_items:
+            added = execute_inventory_tool(
+                self.defender.id,
+                "add_inventory_item",
+                {"item": item, "quantity": 1, "container_id": "test_pack"},
+            )
+            self.assertTrue(added["success"], added)
+
+        equip_shield = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "tower_shield", "slot": "off_hand"},
+        )
+        self.assertTrue(equip_shield["success"], equip_shield)
+        equip_armor = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "heavy_plate", "slot": "torso_armor"},
+        )
+        self.assertTrue(equip_armor["success"], equip_armor)
+
+        defense = execute_equipment_tool(self.defender.id, "get_defense_profile", {})
+        self.assertTrue(defense["success"], defense)
+        self.assertGreater(defense["scores"]["block_score"], defense["scores"]["dodge_score"])
+
+        preview = execute_equipment_tool(
+            self.character.id,
+            "preview_attack_outcome",
+            {"defender_character_id": self.defender.id},
+        )
+        self.assertTrue(preview["success"], preview)
+        self.assertGreaterEqual(preview["probabilities"]["zero_damage_percent"], 70.0)
 
     def test_resource_tools_set_damage_heal_and_life_status(self):
         lowered = execute_resource_tool(
