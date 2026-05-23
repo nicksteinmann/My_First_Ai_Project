@@ -16,6 +16,8 @@ from models import (
     SkillCheckLog,
     SkillDefinition,
 )
+from services.equipment.service import get_attack_profile, get_defense_profile
+from services.resources.service import get_resources, remove_resource
 from services.skills.constants import CORE_SKILLS
 from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATES
 from services.currency.service import add_currency
@@ -162,6 +164,7 @@ CHECK_ATTRIBUTE_ALIASES = {
     "per": "perception",
     "cha": "charisma",
 }
+COMBAT_STATE_KEY = "combat_state"
 
 
 def _skill_name_key(value: str) -> str:
@@ -317,6 +320,673 @@ def _resolve_check_roll(forced_roll=None):
     if forced_roll < CHECK_ROLL_MIN or forced_roll > CHECK_ROLL_MAX:
         return None
     return forced_roll
+
+
+def _load_campaign_notes(campaign: Campaign) -> dict:
+    state = getattr(campaign, "state", None)
+    if not state or not state.notes_json:
+        return {}
+    try:
+        payload = json.loads(state.notes_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_campaign_notes(campaign: Campaign, notes_payload: dict) -> None:
+    campaign_state = getattr(campaign, "state", None)
+    if campaign_state is None:
+        from models import CampaignState
+        campaign_state = CampaignState(campaign_id=campaign.id, notes_json="{}")
+        db.session.add(campaign_state)
+        db.session.flush()
+    campaign_state.notes_json = json.dumps(notes_payload, ensure_ascii=False)
+
+
+def _get_combat_state(campaign: Campaign) -> dict | None:
+    notes = _load_campaign_notes(campaign)
+    combat = notes.get(COMBAT_STATE_KEY)
+    return combat if isinstance(combat, dict) else None
+
+
+def _set_combat_state(campaign: Campaign, combat_state: dict | None) -> None:
+    notes = _load_campaign_notes(campaign)
+    if combat_state is None:
+        notes.pop(COMBAT_STATE_KEY, None)
+    else:
+        notes[COMBAT_STATE_KEY] = combat_state
+    _save_campaign_notes(campaign, notes)
+
+
+def _alive_enemies(combat_state: dict) -> list[dict]:
+    enemies = combat_state.get("enemies", [])
+    if not isinstance(enemies, list):
+        return []
+    return [enemy for enemy in enemies if isinstance(enemy, dict) and enemy.get("status") == "alive"]
+
+
+def _combat_payload(combat_state: dict) -> dict:
+    payload = dict(combat_state or {})
+    payload["enemy_count_alive"] = len(_alive_enemies(payload))
+    payload["current_actor"] = (
+        payload["turn_order"][payload["current_turn_index"]]
+        if payload.get("active") and payload.get("turn_order")
+        else None
+    )
+    payload["combat_ongoing"] = bool(payload.get("active"))
+    return payload
+
+
+def _combat_level_adjusted_attack_score(base_attack_score: float, attacker_level: int, defender_level: int) -> float:
+    level_delta = int(attacker_level) - int(defender_level)
+    score = float(base_attack_score)
+    if level_delta > 0:
+        score += (level_delta * 0.90)
+    elif level_delta < 0:
+        score += (level_delta * 1.30)
+    return score
+
+
+def _resolve_hit_outcome(attack_score: float, dodge_score: float, block_score: float, block_threshold_bonus: float = 0.0) -> dict:
+    attack_roll = random.randint(1, 20)
+    defense_roll = random.randint(1, 20)
+    attack_total = float(attack_score) + attack_roll
+    dodge_total = float(dodge_score) + defense_roll
+    block_total = float(block_score) + defense_roll
+    defense_total = max(dodge_total, block_total)
+    defense_type = "dodge" if dodge_total >= block_total else "block"
+    margin = attack_total - defense_total
+
+    if dodge_total >= attack_total + 6:
+        return {
+            "outcome": "clear_dodge",
+            "damage_multiplier": 0.0,
+            "attack_roll": attack_roll,
+            "defense_roll": defense_roll,
+            "attack_total": round(attack_total, 3),
+            "dodge_total": round(dodge_total, 3),
+            "block_total": round(block_total, 3),
+            "defense_total": round(defense_total, 3),
+            "defense_type": defense_type,
+            "margin": round(margin, 3),
+        }
+
+    if block_total >= attack_total + 6 + float(block_threshold_bonus):
+        return {
+            "outcome": "clear_block",
+            "damage_multiplier": 0.0,
+            "attack_roll": attack_roll,
+            "defense_roll": defense_roll,
+            "attack_total": round(attack_total, 3),
+            "dodge_total": round(dodge_total, 3),
+            "block_total": round(block_total, 3),
+            "defense_total": round(defense_total, 3),
+            "defense_type": defense_type,
+            "margin": round(margin, 3),
+        }
+
+    if margin >= 8:
+        outcome = "full_hit"
+        multiplier = 1.0
+    elif margin >= 1:
+        outcome = "partial_hit"
+        multiplier = 0.45 if defense_type == "dodge" else 0.35
+    else:
+        outcome = "partial_hit"
+        multiplier = 0.30 if defense_type == "dodge" else 0.20
+
+    return {
+        "outcome": outcome,
+        "damage_multiplier": multiplier,
+        "attack_roll": attack_roll,
+        "defense_roll": defense_roll,
+        "attack_total": round(attack_total, 3),
+        "dodge_total": round(dodge_total, 3),
+        "block_total": round(block_total, 3),
+        "defense_total": round(defense_total, 3),
+        "defense_type": defense_type,
+        "margin": round(margin, 3),
+    }
+
+
+def start_combat(campaign_id: int, enemies_json=None):
+    """Start a lightweight combat state with initiative, turn order, and enemy list."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    if _get_combat_state(campaign):
+        return {"success": False, "error": "Combat is already active."}
+
+    resources = get_resources(character.id)
+    player_hp = int(resources.get("hp", {}).get("current", 0) or 0)
+    player_hp_max = int(resources.get("hp", {}).get("max", 0) or 0)
+    attributes = character.attributes
+    player_initiative_base = int((getattr(attributes, "dexterity", 0) or 0) + (getattr(attributes, "perception", 0) or 0))
+
+    enemies_payload = _load_json_payload(enemies_json, [])
+    if not isinstance(enemies_payload, list):
+        enemies_payload = []
+    if not enemies_payload:
+        enemies_payload = [{"name": "Hostile", "hp": 120, "attack_score": 35, "dodge_score": 22, "block_score": 20}]
+
+    enemies = []
+    for index, enemy in enumerate(enemies_payload, start=1):
+        if not isinstance(enemy, dict):
+            continue
+        hp_max = max(1, int(enemy.get("hp_max", enemy.get("hp", 100)) or 100))
+        enemies.append({
+            "combat_id": f"enemy_{index}",
+            "name": str(enemy.get("name", f"Enemy {index}")).strip() or f"Enemy {index}",
+            "hp_current": hp_max,
+            "hp_max": hp_max,
+            "attack_score": float(enemy.get("attack_score", 35)),
+            "dodge_score": float(enemy.get("dodge_score", 20)),
+            "block_score": float(enemy.get("block_score", 18)),
+            "block_threshold_bonus": float(enemy.get("block_threshold_bonus", 0)),
+            "damage_min": max(1, int(enemy.get("damage_min", 12))),
+            "damage_max": max(1, int(enemy.get("damage_max", 20))),
+            "initiative": int(enemy.get("initiative", random.randint(1, 20) + 8)),
+            "allows_surrender": bool(enemy.get("allows_surrender", False)),
+            "surrender_outcome": str(enemy.get("surrender_outcome", "captured")).strip().lower() or "captured",
+            "allows_spare": bool(enemy.get("allows_spare", True)),
+            "spare_outcome": str(enemy.get("spare_outcome", "released")).strip().lower() or "released",
+            "allows_ceasefire": bool(enemy.get("allows_ceasefire", False)),
+            "ceasefire_outcome": str(enemy.get("ceasefire_outcome", "disengaged")).strip().lower() or "disengaged",
+            "status": "alive",
+        })
+
+    if not enemies:
+        return {"success": False, "error": "No valid enemies provided."}
+
+    player_initiative = random.randint(1, 20) + player_initiative_base
+    enemy_best_initiative = max(enemy["initiative"] for enemy in enemies)
+    turn_order = ["player", "enemies"] if player_initiative >= enemy_best_initiative else ["enemies", "player"]
+
+    combat_state = {
+        "active": True,
+        "round": 1,
+        "current_turn_index": 0,
+        "turn_order": turn_order,
+        "player": {
+            "character_id": character.id,
+            "name": character.name,
+            "level": int(character.level or 1),
+            "hp_current": player_hp,
+            "hp_max": player_hp_max,
+            "status": "alive" if player_hp > 0 else "dead",
+            "initiative": player_initiative,
+        },
+        "enemies": enemies,
+        "last_event": {
+            "type": "combat_started",
+            "player_initiative": player_initiative,
+            "enemy_best_initiative": enemy_best_initiative,
+            "first_actor": turn_order[0],
+        },
+    }
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "start_combat",
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def get_combat_state(campaign_id: int):
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state:
+        return {"success": False, "error": "No active combat."}
+
+    return {
+        "success": True,
+        "tool": "get_combat_state",
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def _advance_combat_turn(combat_state: dict) -> None:
+    turn_order = combat_state.get("turn_order", ["player", "enemies"])
+    current_index = int(combat_state.get("current_turn_index", 0))
+    next_index = current_index + 1
+    if next_index >= len(turn_order):
+        combat_state["round"] = int(combat_state.get("round", 1)) + 1
+        next_index = 0
+    combat_state["current_turn_index"] = next_index
+
+
+def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id: str = None):
+    """Resolve one combat attack and update HP/defeat state."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state or not combat_state.get("active"):
+        return {"success": False, "error": "No active combat."}
+
+    current_actor = combat_state["turn_order"][combat_state["current_turn_index"]]
+    effective_attacker_side = (attacker_side or current_actor).strip().lower()
+    if effective_attacker_side != current_actor:
+        return {"success": False, "error": f"It is currently {current_actor}'s turn."}
+
+    alive_enemies = _alive_enemies(combat_state)
+    if not alive_enemies:
+        combat_state["active"] = False
+        combat_state["last_event"] = {"type": "combat_finished", "winner": "player"}
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {"success": True, "tool": "resolve_attack", "combat": _combat_payload(combat_state)}
+
+    if effective_attacker_side == "player":
+        target = None
+        if target_enemy_id:
+            for enemy in alive_enemies:
+                if enemy.get("combat_id") == target_enemy_id:
+                    target = enemy
+                    break
+        if target is None:
+            target = alive_enemies[0]
+
+        attack_profile = get_attack_profile(character.id)
+        if not attack_profile.get("success"):
+            return {"success": False, "error": attack_profile.get("message", "Attack profile unavailable.")}
+
+        base_attack_score = (
+            12.0
+            + (float(attack_profile["scaling"].get("weighted_attribute_score", 0.0)) * 1.20)
+            + (float(attack_profile["weapon"].get("skill_level", 0)) * 0.95)
+            + (float(attack_profile["weapon"].get("item_level", 1)) * 0.70)
+            + (float(character.level or 1) * 0.70)
+        )
+        attack_score = _combat_level_adjusted_attack_score(base_attack_score, int(character.level or 1), int(target.get("level", int(character.level or 1))))
+        hit_outcome = _resolve_hit_outcome(
+            attack_score=attack_score,
+            dodge_score=float(target.get("dodge_score", 0)),
+            block_score=float(target.get("block_score", 0)),
+            block_threshold_bonus=float(target.get("block_threshold_bonus", 0)),
+        )
+        raw_damage = random.randint(
+            int(attack_profile["damage"]["final_min"]),
+            int(attack_profile["damage"]["final_max"]),
+        )
+        dealt_damage = int(round(raw_damage * float(hit_outcome["damage_multiplier"])))
+        dealt_damage = max(0, dealt_damage)
+        target["hp_current"] = max(0, int(target.get("hp_current", 0)) - dealt_damage)
+        if int(target["hp_current"]) <= 0:
+            target["status"] = "defeated"
+
+        combat_state["last_event"] = {
+            "type": "player_attack",
+            "attacker": character.name,
+            "target": target.get("name"),
+            "target_id": target.get("combat_id"),
+            "raw_damage": raw_damage,
+            "dealt_damage": dealt_damage,
+            "outcome": hit_outcome["outcome"],
+            "defense_type_used": hit_outcome["defense_type"],
+            "target_hp_after": int(target.get("hp_current", 0)),
+            "target_defeated": target.get("status") == "defeated",
+            "attack_details": hit_outcome,
+        }
+    else:
+        attacker = alive_enemies[0]
+        defense_profile = get_defense_profile(character.id)
+        if not defense_profile.get("success"):
+            return {"success": False, "error": defense_profile.get("message", "Defense profile unavailable.")}
+
+        attack_score = _combat_level_adjusted_attack_score(
+            float(attacker.get("attack_score", 30)),
+            int(attacker.get("level", int(character.level or 1))),
+            int(character.level or 1),
+        )
+        hit_outcome = _resolve_hit_outcome(
+            attack_score=attack_score,
+            dodge_score=float(defense_profile["scores"]["dodge_score"]),
+            block_score=float(defense_profile["scores"]["block_score"]),
+            block_threshold_bonus=float(defense_profile["armor"]["block_threshold_bonus_total"]),
+        )
+        raw_damage = random.randint(int(attacker.get("damage_min", 8)), int(attacker.get("damage_max", 16)))
+        dealt_damage = int(round(raw_damage * float(hit_outcome["damage_multiplier"])))
+        dealt_damage = max(0, dealt_damage)
+
+        if dealt_damage > 0:
+            hp_change = remove_resource(character.id, "hp", dealt_damage).to_dict()
+            player_hp_after = int(hp_change["resources"]["hp"]["current"])
+            player_status = hp_change["resources"]["character_status"]
+        else:
+            player_resources = get_resources(character.id)
+            player_hp_after = int(player_resources["hp"]["current"])
+            player_status = character.status
+
+        combat_state["player"]["hp_current"] = player_hp_after
+        combat_state["player"]["status"] = player_status
+        combat_state["last_event"] = {
+            "type": "enemy_attack",
+            "attacker": attacker.get("name"),
+            "target": character.name,
+            "raw_damage": raw_damage,
+            "dealt_damage": dealt_damage,
+            "outcome": hit_outcome["outcome"],
+            "defense_type_used": hit_outcome["defense_type"],
+            "player_hp_after": player_hp_after,
+            "player_defeated": player_status == "dead",
+            "attack_details": hit_outcome,
+        }
+
+    if combat_state["player"]["status"] == "dead":
+        combat_state["active"] = False
+        combat_state["last_event"]["combat_result"] = "player_defeated"
+    elif not _alive_enemies(combat_state):
+        combat_state["active"] = False
+        combat_state["last_event"]["combat_result"] = "enemies_defeated"
+    else:
+        _advance_combat_turn(combat_state)
+
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+    return {
+        "success": True,
+        "tool": "resolve_attack",
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def attempt_escape(campaign_id: int):
+    """Attempt to escape from active combat."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state or not combat_state.get("active"):
+        return {"success": False, "error": "No active combat."}
+
+    alive_enemies = _alive_enemies(combat_state)
+    if not alive_enemies:
+        combat_state["active"] = False
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {"success": True, "tool": "attempt_escape", "escaped": True, "combat": _combat_payload(combat_state)}
+
+    attributes = character.attributes
+    dexterity = int(getattr(attributes, "dexterity", 0) or 0)
+    perception = int(getattr(attributes, "perception", 0) or 0)
+    escape_score = 12 + (dexterity * 1.0) + (perception * 0.6) + (int(character.level or 1) * 0.4) + random.randint(1, 20)
+    enemy_pursuit = max(
+        float(enemy.get("attack_score", 30)) * 0.75 + random.randint(1, 20)
+        for enemy in alive_enemies
+    )
+
+    escaped = escape_score >= enemy_pursuit + 3
+    combat_state["last_event"] = {
+        "type": "attempt_escape",
+        "escaped": bool(escaped),
+        "escape_score": round(float(escape_score), 3),
+        "enemy_pursuit_score": round(float(enemy_pursuit), 3),
+    }
+
+    if escaped:
+        combat_state["active"] = False
+        combat_state["last_event"]["combat_result"] = "escaped"
+    else:
+        _advance_combat_turn(combat_state)
+
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+    return {
+        "success": True,
+        "tool": "attempt_escape",
+        "escaped": bool(escaped),
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def attempt_surrender(campaign_id: int):
+    """Attempt surrender in an active combat. Only works when enemies allow surrender."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state or not combat_state.get("active"):
+        return {"success": False, "error": "No active combat."}
+
+    alive_enemies = _alive_enemies(combat_state)
+    if not alive_enemies:
+        combat_state["active"] = False
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {"success": True, "tool": "attempt_surrender", "surrendered": True, "combat": _combat_payload(combat_state)}
+
+    willing = [enemy for enemy in alive_enemies if bool(enemy.get("allows_surrender", False))]
+    if not willing:
+        combat_state["last_event"] = {
+            "type": "attempt_surrender",
+            "surrendered": False,
+            "reason": "enemies_refuse_surrender",
+        }
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {
+            "success": False,
+            "tool": "attempt_surrender",
+            "error": "The current enemies refuse surrender.",
+            "combat": _combat_payload(combat_state),
+        }
+
+    priority = {"spared": 0, "captured": 1, "imprisoned": 2}
+    outcome = sorted(
+        [str(enemy.get("surrender_outcome", "captured")).strip().lower() or "captured" for enemy in willing],
+        key=lambda key: priority.get(key, 1),
+    )[0]
+
+    combat_state["active"] = False
+    combat_state["last_event"] = {
+        "type": "attempt_surrender",
+        "surrendered": True,
+        "surrender_outcome": outcome,
+        "accepted_by_enemy_count": len(willing),
+    }
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+    return {
+        "success": True,
+        "tool": "attempt_surrender",
+        "surrendered": True,
+        "surrender_outcome": outcome,
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def attempt_ceasefire(campaign_id: int):
+    """Attempt to mutually stop an active combat when opponents are willing."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state or not combat_state.get("active"):
+        return {"success": False, "error": "No active combat."}
+
+    current_actor = combat_state["turn_order"][combat_state["current_turn_index"]]
+    if current_actor != "player":
+        return {"success": False, "error": "It is not the player's turn."}
+
+    alive_enemies = _alive_enemies(combat_state)
+    if not alive_enemies:
+        combat_state["active"] = False
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {"success": True, "tool": "attempt_ceasefire", "ceasefire": True, "combat": _combat_payload(combat_state)}
+
+    willing = [enemy for enemy in alive_enemies if bool(enemy.get("allows_ceasefire", False))]
+    if not willing:
+        combat_state["last_event"] = {
+            "type": "attempt_ceasefire",
+            "ceasefire": False,
+            "reason": "enemies_refuse_ceasefire",
+        }
+        _advance_combat_turn(combat_state)
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {
+            "success": False,
+            "tool": "attempt_ceasefire",
+            "error": "The current enemies refuse to stop fighting.",
+            "combat": _combat_payload(combat_state),
+        }
+
+    priority = {"truce": 0, "disengaged": 1, "withdrawn": 2}
+    outcome = sorted(
+        [str(enemy.get("ceasefire_outcome", "disengaged")).strip().lower() or "disengaged" for enemy in willing],
+        key=lambda key: priority.get(key, 1),
+    )[0]
+
+    combat_state["active"] = False
+    combat_state["last_event"] = {
+        "type": "attempt_ceasefire",
+        "ceasefire": True,
+        "ceasefire_outcome": outcome,
+        "accepted_by_enemy_count": len(willing),
+        "combat_result": "ceasefire",
+    }
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+    return {
+        "success": True,
+        "tool": "attempt_ceasefire",
+        "ceasefire": True,
+        "ceasefire_outcome": outcome,
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def attempt_spare(campaign_id: int, target_enemy_id: str = None):
+    """Attempt to spare a weakened enemy during the player's turn."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state or not combat_state.get("active"):
+        return {"success": False, "error": "No active combat."}
+
+    current_actor = combat_state["turn_order"][combat_state["current_turn_index"]]
+    if current_actor != "player":
+        return {"success": False, "error": "It is not the player's turn."}
+
+    alive_enemies = _alive_enemies(combat_state)
+    if not alive_enemies:
+        combat_state["active"] = False
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {"success": True, "tool": "attempt_spare", "spared": True, "combat": _combat_payload(combat_state)}
+
+    target = None
+    if target_enemy_id:
+        for enemy in alive_enemies:
+            if enemy.get("combat_id") == target_enemy_id:
+                target = enemy
+                break
+        if target is None:
+            return {"success": False, "error": "Target enemy not found or already not alive."}
+    else:
+        target = alive_enemies[0]
+
+    if not bool(target.get("allows_spare", True)):
+        combat_state["last_event"] = {
+            "type": "attempt_spare",
+            "spared": False,
+            "target_id": target.get("combat_id"),
+            "target": target.get("name"),
+            "reason": "enemy_refuses_mercy",
+        }
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {
+            "success": False,
+            "tool": "attempt_spare",
+            "error": "This enemy cannot be spared.",
+            "combat": _combat_payload(combat_state),
+        }
+
+    hp_current = int(target.get("hp_current", 0) or 0)
+    hp_max = max(1, int(target.get("hp_max", 1) or 1))
+    hp_ratio = float(hp_current) / float(hp_max)
+    if hp_ratio > 0.35:
+        combat_state["last_event"] = {
+            "type": "attempt_spare",
+            "spared": False,
+            "target_id": target.get("combat_id"),
+            "target": target.get("name"),
+            "reason": "target_not_weakened_enough",
+            "target_hp_ratio": round(hp_ratio, 4),
+        }
+        _set_combat_state(campaign, combat_state)
+        db.session.commit()
+        return {
+            "success": False,
+            "tool": "attempt_spare",
+            "error": "Target is not weakened enough to spare safely.",
+            "combat": _combat_payload(combat_state),
+        }
+
+    target["status"] = "spared"
+    target["hp_current"] = max(1, hp_current)
+    spare_outcome = str(target.get("spare_outcome", "released")).strip().lower() or "released"
+    combat_state["last_event"] = {
+        "type": "attempt_spare",
+        "spared": True,
+        "target_id": target.get("combat_id"),
+        "target": target.get("name"),
+        "spare_outcome": spare_outcome,
+        "target_hp_after": int(target["hp_current"]),
+    }
+
+    if not _alive_enemies(combat_state):
+        combat_state["active"] = False
+        combat_state["last_event"]["combat_result"] = "enemies_spared_or_defeated"
+    else:
+        _advance_combat_turn(combat_state)
+
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+    return {
+        "success": True,
+        "tool": "attempt_spare",
+        "spared": True,
+        "spare_outcome": spare_outcome,
+        "combat": _combat_payload(combat_state),
+    }
 
 
 def _normalize_time_label(value: str) -> str:
@@ -2303,6 +2973,109 @@ STATE_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "start_combat",
+            "description": "Start backend combat state with initiative, turn order, and one or more enemies.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "enemies_json": {
+                        "type": "string",
+                        "description": "Optional JSON array of enemy entries with fields like name, hp, attack_score, dodge_score, block_score, damage_min, damage_max.",
+                    }
+                },
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_combat_state",
+            "description": "Return active combat state including current actor, alive enemies, and last combat event.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_attack",
+            "description": "Resolve one combat attack turn and return exact backend outcome including damage and defeat flags.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "attacker_side": {
+                        "type": "string",
+                        "description": "Optional attacker side: player or enemies. Must match current turn if provided."
+                    },
+                    "target_enemy_id": {
+                        "type": "string",
+                        "description": "Optional enemy combat_id target when player attacks. Defaults to first alive enemy."
+                    }
+                },
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attempt_escape",
+            "description": "Attempt to flee an active combat encounter. Backend decides success or failure.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attempt_surrender",
+            "description": "Attempt to surrender in active combat. Works only if current enemies allow surrender.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attempt_ceasefire",
+            "description": "Attempt to stop combat by mutual de-escalation (duel stop, mercy pause, stand down).",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attempt_spare",
+            "description": "Attempt to spare a weakened enemy during the player's turn.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_enemy_id": {
+                        "type": "string",
+                        "description": "Optional enemy combat_id to spare. Defaults to first alive enemy."
+                    }
+                },
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_quest",
             "description": "Create a structured quest in the current campaign.",
             "parameters": {
@@ -2501,6 +3274,37 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
             primary_attribute=arguments.get("primary_attribute"),
             secondary_attributes=arguments.get("secondary_attributes"),
             include_character_level=arguments.get("include_character_level", True),
+        )
+
+    if tool_name == "start_combat":
+        return start_combat(
+            campaign_id=campaign_id,
+            enemies_json=arguments.get("enemies_json"),
+        )
+
+    if tool_name == "get_combat_state":
+        return get_combat_state(campaign_id=campaign_id)
+
+    if tool_name == "resolve_attack":
+        return resolve_attack(
+            campaign_id=campaign_id,
+            attacker_side=arguments.get("attacker_side"),
+            target_enemy_id=arguments.get("target_enemy_id"),
+        )
+
+    if tool_name == "attempt_escape":
+        return attempt_escape(campaign_id=campaign_id)
+
+    if tool_name == "attempt_surrender":
+        return attempt_surrender(campaign_id=campaign_id)
+
+    if tool_name == "attempt_ceasefire":
+        return attempt_ceasefire(campaign_id=campaign_id)
+
+    if tool_name == "attempt_spare":
+        return attempt_spare(
+            campaign_id=campaign_id,
+            target_enemy_id=arguments.get("target_enemy_id"),
         )
 
     if tool_name == "create_quest":

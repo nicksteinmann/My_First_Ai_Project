@@ -359,7 +359,7 @@ def _parse_scaling(raw_scaling: Any, default_scaling: Dict[str, float]) -> Dict[
 def _build_weapon_profile(item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not item:
         base = WEAPON_FAMILY_PROFILES["unarmed"]
-        return {"weapon_family": "unarmed", **base}
+        return {"weapon_family": "unarmed", "item_level": 1, **base}
 
     family = _infer_weapon_family_from_item(item)
     base_profile = dict(WEAPON_FAMILY_PROFILES.get(family, DEFAULT_WEAPON_PROFILE))

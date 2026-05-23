@@ -17,13 +17,20 @@ from models import (
 )
 from services.skills.service import create_custom_skill
 from services.adventure_state.tools import (
+    attempt_surrender,
+    attempt_ceasefire,
+    attempt_spare,
+    attempt_escape,
     advance_time,
     claim_quest_rewards,
     create_quest,
+    get_combat_state,
     get_quest_details,
     move_to_coordinates,
     perform_check,
+    resolve_attack,
     rest,
+    start_combat,
     spend_time,
     turn_in_quest,
     update_location,
@@ -544,6 +551,173 @@ class QuestBackendTestCase(unittest.TestCase):
         )
         self.assertFalse(blocked["success"], blocked)
         self.assertIn("not allowed for action domain", blocked["error"])
+
+    def test_combat_start_resolve_and_state_payload(self):
+        self.character.level = 20
+        self.attributes.strength = 18
+        self.attributes.dexterity = 12
+        self.attributes.constitution = 16
+        db.session.commit()
+
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([
+                {
+                    "name": "Cellar Rat",
+                    "hp": 80,
+                    "attack_score": 26,
+                    "dodge_score": 18,
+                    "block_score": 10,
+                    "damage_min": 8,
+                    "damage_max": 12,
+                }
+            ]),
+        )
+        self.assertTrue(started["success"], started)
+        self.assertTrue(started["combat"]["active"])
+        self.assertTrue(started["combat"]["combat_ongoing"])
+        self.assertEqual(1, len(started["combat"]["enemies"]))
+        self.assertIn(started["combat"]["turn_order"][0], {"player", "enemies"})
+
+        state_before = get_combat_state(self.campaign.id)
+        self.assertTrue(state_before["success"], state_before)
+        self.assertTrue(state_before["combat"]["combat_ongoing"])
+        self.assertEqual(1, state_before["combat"]["enemy_count_alive"])
+        self.assertIn(state_before["combat"]["current_actor"], {"player", "enemies"})
+
+        actor = state_before["combat"]["current_actor"]
+        resolved = resolve_attack(
+            campaign_id=self.campaign.id,
+            attacker_side=actor,
+        )
+        self.assertTrue(resolved["success"], resolved)
+        self.assertEqual(resolved["combat"]["combat_ongoing"], resolved["combat"]["active"])
+        self.assertIn(resolved["combat"]["last_event"]["outcome"], {"clear_dodge", "clear_block", "partial_hit", "full_hit"})
+        self.assertIn("dealt_damage", resolved["combat"]["last_event"])
+
+    def test_combat_escape_reports_success_or_failure(self):
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([{"name": "Bandit", "hp": 90, "attack_score": 30}]),
+        )
+        self.assertTrue(started["success"], started)
+
+        escaped = attempt_escape(self.campaign.id)
+        self.assertTrue(escaped["success"], escaped)
+        self.assertIn("escaped", escaped)
+        if escaped["escaped"]:
+            self.assertFalse(escaped["combat"]["active"])
+        else:
+            self.assertTrue(escaped["combat"]["active"])
+
+    def test_combat_surrender_allowed_and_refused(self):
+        refused_start = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([{"name": "Bandit", "hp": 90, "attack_score": 30, "allows_surrender": False}]),
+        )
+        self.assertTrue(refused_start["success"], refused_start)
+        refused = attempt_surrender(self.campaign.id)
+        self.assertFalse(refused["success"], refused)
+        self.assertTrue(refused["combat"]["combat_ongoing"])
+        self.assertIn("refuse surrender", refused["error"].lower())
+
+        # Reset by forcing combat cleanup for next scenario.
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        notes.pop("combat_state", None)
+        if campaign.state:
+            campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        allowed_start = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([{"name": "City Guard", "hp": 120, "attack_score": 32, "allows_surrender": True, "surrender_outcome": "captured"}]),
+        )
+        self.assertTrue(allowed_start["success"], allowed_start)
+        accepted = attempt_surrender(self.campaign.id)
+        self.assertTrue(accepted["success"], accepted)
+        self.assertTrue(accepted["surrendered"])
+        self.assertEqual("captured", accepted["surrender_outcome"])
+        self.assertFalse(accepted["combat"]["combat_ongoing"])
+
+    def test_combat_spare_requires_weakened_target_and_ends_if_last_enemy(self):
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([
+                {
+                    "name": "Highway Bandit",
+                    "hp": 100,
+                    "attack_score": 28,
+                    "dodge_score": 16,
+                    "block_score": 10,
+                    "allows_spare": True,
+                    "spare_outcome": "released",
+                }
+            ]),
+        )
+        self.assertTrue(started["success"], started)
+
+        too_early = attempt_spare(self.campaign.id, target_enemy_id="enemy_1")
+        self.assertFalse(too_early["success"], too_early)
+        self.assertIn("not weakened", too_early["error"].lower())
+        self.assertTrue(too_early["combat"]["combat_ongoing"])
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["current_turn_index"] = combat["turn_order"].index("player")
+        combat["enemies"][0]["hp_current"] = 20  # 20%
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        spared = attempt_spare(self.campaign.id, target_enemy_id="enemy_1")
+        self.assertTrue(spared["success"], spared)
+        self.assertTrue(spared["spared"])
+        self.assertEqual("released", spared["spare_outcome"])
+        self.assertFalse(spared["combat"]["combat_ongoing"])
+        self.assertEqual("enemies_spared_or_defeated", spared["combat"]["last_event"]["combat_result"])
+
+    def test_combat_ceasefire_allowed_and_refused(self):
+        refused_start = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([{"name": "Raider", "hp": 95, "attack_score": 29, "allows_ceasefire": False}]),
+        )
+        self.assertTrue(refused_start["success"], refused_start)
+        refused = attempt_ceasefire(self.campaign.id)
+        self.assertFalse(refused["success"], refused)
+        self.assertTrue(refused["combat"]["combat_ongoing"])
+        self.assertIn("refuse", refused["error"].lower())
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        notes.pop("combat_state", None)
+        if campaign.state:
+            campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        allowed_start = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([
+                {"name": "Duelist", "hp": 110, "attack_score": 33, "allows_ceasefire": True, "ceasefire_outcome": "truce"}
+            ]),
+        )
+        self.assertTrue(allowed_start["success"], allowed_start)
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["current_turn_index"] = combat["turn_order"].index("player")
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        accepted = attempt_ceasefire(self.campaign.id)
+        self.assertTrue(accepted["success"], accepted)
+        self.assertTrue(accepted["ceasefire"])
+        self.assertEqual("truce", accepted["ceasefire_outcome"])
+        self.assertFalse(accepted["combat"]["combat_ongoing"])
+        self.assertEqual("ceasefire", accepted["combat"]["last_event"]["combat_result"])
 
     def test_quest_location_ids_serialize_coordinate_context(self):
         start = update_location(
