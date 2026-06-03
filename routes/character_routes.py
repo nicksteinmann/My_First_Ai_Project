@@ -351,6 +351,11 @@ def register_character_routes(
                 "quantity": 1,
                 "hand_usage": "none",
                 "item_type": "clothing",
+                "combat_profile": {
+                    "armor_class": "light",
+                    "armor_rating": 3,
+                    "dodge_bonus": 1,
+                },
                 "container_profile": {
                     "name": "Jacket",
                     "max_volume": 2.0,
@@ -369,6 +374,11 @@ def register_character_routes(
                 "quantity": 1,
                 "hand_usage": "none",
                 "item_type": "pants",
+                "combat_profile": {
+                    "armor_class": "light",
+                    "armor_rating": 2,
+                    "dodge_bonus": 1,
+                },
                 "container_profile": {
                     "name": "Trousers",
                     "max_volume": 1.0,
@@ -387,6 +397,11 @@ def register_character_routes(
                 "quantity": 1,
                 "hand_usage": "none",
                 "item_type": "shoes",
+                "combat_profile": {
+                    "armor_class": "light",
+                    "armor_rating": 1,
+                    "dodge_bonus": 0.5,
+                },
                 "equipped_slots": ["feet"],
             }
             starter_belt = {
@@ -449,6 +464,18 @@ def register_character_routes(
                 "quantity": 1,
                 "hand_usage": "one_handed",
                 "item_type": "weapon",
+                "weapon_family": "mace_club",
+                "item_level": 3,
+                "combat_profile": {
+                    "weapon_family": "mace_club",
+                    "item_level": 3,
+                    "base_damage_min": 6,
+                    "base_damage_max": 11,
+                    "damage_type": "blunt",
+                    "skill_name": "Axes & Hammers",
+                    "attack_mode": "melee",
+                    "scaling": {"strength": 0.7, "constitution": 0.1},
+                },
                 "equipped_slots": ["main_hand"],
             }
             starter_backpack = {

@@ -25,6 +25,7 @@ from services.adventure_state.tools import (
     claim_quest_rewards,
     create_quest,
     get_combat_state,
+    grant_combat_loot,
     get_quest_details,
     move_to_coordinates,
     perform_check,
@@ -657,6 +658,14 @@ class QuestBackendTestCase(unittest.TestCase):
         )
         self.assertTrue(started["success"], started)
 
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["current_turn_index"] = combat["turn_order"].index("player")
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
         too_early = attempt_spare(self.campaign.id, target_enemy_id="enemy_1")
         self.assertFalse(too_early["success"], too_early)
         self.assertIn("not weakened", too_early["error"].lower())
@@ -718,6 +727,63 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertEqual("truce", accepted["ceasefire_outcome"])
         self.assertFalse(accepted["combat"]["combat_ongoing"])
         self.assertEqual("ceasefire", accepted["combat"]["last_event"]["combat_result"])
+
+    def test_archetype_rat_has_fixed_hp_and_defeated_loot_is_granted_once(self):
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([
+                {"name": "Cellar Rat", "archetype_id": "rat", "level": 9},
+            ]),
+        )
+        self.assertTrue(started["success"], started)
+        self.assertEqual(5, started["combat"]["enemies"][0]["hp_max"])
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["active"] = False
+        combat["enemies"][0]["status"] = "defeated"
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        granted = grant_combat_loot(self.campaign.id)
+        self.assertTrue(granted["success"], granted)
+        self.assertEqual(1, granted["granted_enemy_count"])
+
+        granted_again = grant_combat_loot(self.campaign.id)
+        self.assertTrue(granted_again["success"], granted_again)
+        self.assertEqual(0, granted_again["granted_enemy_count"])
+
+    def test_humanoid_combat_loot_grants_xp_and_money_profile(self):
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([
+                {"name": "City Guard", "archetype_id": "guard", "level": 25},
+            ]),
+        )
+        self.assertTrue(started["success"], started)
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["active"] = False
+        combat["enemies"][0]["status"] = "defeated"
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        granted = grant_combat_loot(self.campaign.id)
+        self.assertTrue(granted["success"], granted)
+        self.assertGreater(granted["xp_total"], 0)
+        self.assertIsNotNone(granted["xp_result"])
+        self.assertIn(granted["granted_enemies"][0]["reward_role"], {"humanoid_guard", "humanoid_raider", "humanoid_elite"})
+        total_money = (
+            int(granted["currency"].get("gold", 0)) * 1000
+            + int(granted["currency"].get("silver", 0)) * 50
+            + int(granted["currency"].get("copper", 0))
+        )
+        self.assertGreater(total_money, 0)
 
     def test_quest_location_ids_serialize_coordinate_context(self):
         start = update_location(

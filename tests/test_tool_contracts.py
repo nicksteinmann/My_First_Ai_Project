@@ -27,6 +27,7 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
                 "perform_check",
                 "start_combat",
                 "get_combat_state",
+                "grant_combat_loot",
                 "resolve_attack",
                 "attempt_escape",
                 "attempt_surrender",

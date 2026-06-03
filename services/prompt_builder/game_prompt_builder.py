@@ -259,6 +259,7 @@ State Changes:
     - Combat flow must stay backend-driven:
         - Use start_combat when a real hostile encounter begins.
         - Use get_combat_state when you need to confirm whether combat is ongoing, whose turn it is, and how many enemies are still active.
+        - Use grant_combat_loot after enemies are defeated to grant backend-validated drops (currency, equipment, quest items) exactly once.
         - Use resolve_attack only when an actual attack action is executed.
         - Use attempt_escape when the player tries to flee the encounter.
         - Use attempt_surrender when the player gives up and accepts enemy control/capture outcomes.

@@ -42,6 +42,7 @@ from services.world_data import (
     normalize_coordinate,
     resolve_coordinate_context,
 )
+from .enemy_archetypes import build_enemy_from_payload
 
 
 QUEST_TYPE_REWARD_MULTIPLIERS = {
@@ -479,27 +480,10 @@ def start_combat(campaign_id: int, enemies_json=None):
     for index, enemy in enumerate(enemies_payload, start=1):
         if not isinstance(enemy, dict):
             continue
-        hp_max = max(1, int(enemy.get("hp_max", enemy.get("hp", 100)) or 100))
-        enemies.append({
-            "combat_id": f"enemy_{index}",
-            "name": str(enemy.get("name", f"Enemy {index}")).strip() or f"Enemy {index}",
-            "hp_current": hp_max,
-            "hp_max": hp_max,
-            "attack_score": float(enemy.get("attack_score", 35)),
-            "dodge_score": float(enemy.get("dodge_score", 20)),
-            "block_score": float(enemy.get("block_score", 18)),
-            "block_threshold_bonus": float(enemy.get("block_threshold_bonus", 0)),
-            "damage_min": max(1, int(enemy.get("damage_min", 12))),
-            "damage_max": max(1, int(enemy.get("damage_max", 20))),
-            "initiative": int(enemy.get("initiative", random.randint(1, 20) + 8)),
-            "allows_surrender": bool(enemy.get("allows_surrender", False)),
-            "surrender_outcome": str(enemy.get("surrender_outcome", "captured")).strip().lower() or "captured",
-            "allows_spare": bool(enemy.get("allows_spare", True)),
-            "spare_outcome": str(enemy.get("spare_outcome", "released")).strip().lower() or "released",
-            "allows_ceasefire": bool(enemy.get("allows_ceasefire", False)),
-            "ceasefire_outcome": str(enemy.get("ceasefire_outcome", "disengaged")).strip().lower() or "disengaged",
-            "status": "alive",
-        })
+        resolved_enemy = build_enemy_from_payload(enemy, index)
+        if "initiative" not in enemy:
+            resolved_enemy["initiative"] = int(random.randint(1, 20) + int(resolved_enemy.get("initiative", 8)))
+        enemies.append(resolved_enemy)
 
     if not enemies:
         return {"success": False, "error": "No valid enemies provided."}
@@ -536,6 +520,109 @@ def start_combat(campaign_id: int, enemies_json=None):
     return {
         "success": True,
         "tool": "start_combat",
+        "combat": _combat_payload(combat_state),
+    }
+
+
+def grant_combat_loot(campaign_id: int):
+    """Grant loot from defeated enemies in the current combat state exactly once."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    character = db.session.get(Character, campaign.character_id)
+    if not character:
+        return {"success": False, "error": "Character not found."}
+
+    combat_state = _get_combat_state(campaign)
+    if not combat_state:
+        return {"success": False, "error": "No combat state found."}
+
+    enemies = combat_state.get("enemies", [])
+    if not isinstance(enemies, list):
+        return {"success": False, "error": "Combat state is invalid."}
+
+    total_currency = {"gold": 0, "silver": 0, "copper": 0}
+    granted_items = []
+    granted_enemies = []
+    xp_total = 0
+
+    for enemy in enemies:
+        if not isinstance(enemy, dict):
+            continue
+        if enemy.get("status") != "defeated":
+            continue
+        if bool(enemy.get("loot_granted", False)):
+            continue
+
+        reward_profile = _combat_reward_profile_for_enemy(enemy)
+        xp_total += int(reward_profile["xp"])
+
+        currency_payload = enemy.get("loot_currency", {})
+        static_copper = _currency_value_to_copper(currency_payload if isinstance(currency_payload, dict) else {})
+        computed_copper = int(reward_profile["money_copper"])
+        total_enemy_copper = max(0, static_copper + computed_copper)
+        merged_currency = _copper_to_currency_payload(total_enemy_copper)
+        gold = int(merged_currency.get("gold", 0) or 0)
+        silver = int(merged_currency.get("silver", 0) or 0)
+        copper = int(merged_currency.get("copper", 0) or 0)
+        if gold > 0 or silver > 0 or copper > 0:
+            currency_result = add_currency(
+                character_id=character.id,
+                gold=gold,
+                silver=silver,
+                copper=copper,
+            )
+            if currency_result.success:
+                total_currency["gold"] += gold
+                total_currency["silver"] += silver
+                total_currency["copper"] += copper
+
+        loot_items = enemy.get("loot_items", [])
+        quest_items = enemy.get("quest_items", [])
+        for entry in [*loot_items, *quest_items]:
+            if not isinstance(entry, dict):
+                continue
+            quantity = int(entry.get("quantity", 1) or 1)
+            item_result = add_inventory_item(
+                character_id=character.id,
+                item=entry,
+                quantity=quantity,
+            ).to_dict()
+            granted_items.append(item_result)
+
+        enemy["loot_granted"] = True
+        granted_enemies.append({
+            "combat_id": enemy.get("combat_id"),
+            "name": enemy.get("name"),
+            "archetype_id": enemy.get("archetype_id"),
+            "reward_role": reward_profile["role"],
+            "reward_level": reward_profile["level"],
+            "reward_xp": reward_profile["xp"],
+            "reward_money_copper": total_enemy_copper,
+        })
+
+    xp_result = None
+    if xp_total > 0:
+        xp_result = add_xp(
+            character_id=character.id,
+            amount=int(xp_total),
+            reason="Combat reward",
+        ).to_dict()
+
+    _set_combat_state(campaign, combat_state)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "grant_combat_loot",
+        "granted_enemy_count": len(granted_enemies),
+        "granted_enemies": granted_enemies,
+        "xp_total": int(xp_total),
+        "xp_result": xp_result,
+        "currency": total_currency,
+        "items": granted_items,
         "combat": _combat_payload(combat_state),
     }
 
@@ -2252,6 +2339,84 @@ def _currency_value_to_copper(currency_payload):
     return (gold * GOLD_TO_COPPER) + (silver * silver_to_copper) + copper
 
 
+def _copper_to_currency_payload(copper_value: int) -> dict:
+    """Convert copper integer value to gold/silver/copper payload."""
+
+    copper_value = max(0, int(copper_value or 0))
+    silver_to_copper = int(CURRENCY_CONVERSION_RATES["silver_to_copper"])
+    gold = copper_value // GOLD_TO_COPPER
+    remainder = copper_value % GOLD_TO_COPPER
+    silver = remainder // silver_to_copper
+    copper = remainder % silver_to_copper
+    return {
+        "gold": int(gold),
+        "silver": int(silver),
+        "copper": int(copper),
+    }
+
+
+def _combat_enemy_role(enemy: dict) -> str:
+    """Classify one combat enemy into reward role tiers."""
+
+    archetype_id = str(enemy.get("archetype_id", "")).strip().lower()
+    category = str(enemy.get("category", "")).strip().lower()
+
+    if category == "humanoid":
+        if "general" in archetype_id:
+            return "humanoid_general"
+        if "captain" in archetype_id:
+            return "humanoid_captain"
+        if "guard" in archetype_id:
+            return "humanoid_guard"
+        if any(token in archetype_id for token in ("civilian", "worker", "beggar", "old", "child")):
+            return "humanoid_civilian"
+        if any(token in archetype_id for token in ("champion", "knight", "veteran", "elite", "hero")):
+            return "humanoid_elite"
+        return "humanoid_raider"
+
+    if category == "undead":
+        return "undead"
+    if category == "monster":
+        return "monster"
+    if category == "animal":
+        return "animal"
+
+    return "generic"
+
+
+def _combat_reward_profile_for_enemy(enemy: dict) -> dict:
+    """Return backend reward profile (xp and money value) for one defeated enemy."""
+
+    role = _combat_enemy_role(enemy)
+    level = max(1, int(enemy.get("level", 1) or 1))
+
+    profile_by_role = {
+        "humanoid_civilian": {"xp_base": 3, "xp_scale": 1.05, "money_base_copper": 4, "money_scale": 1.02},
+        "humanoid_raider": {"xp_base": 7, "xp_scale": 1.07, "money_base_copper": 16, "money_scale": 1.04},
+        "humanoid_guard": {"xp_base": 14, "xp_scale": 1.08, "money_base_copper": 60, "money_scale": 1.05},
+        "humanoid_captain": {"xp_base": 24, "xp_scale": 1.09, "money_base_copper": 130, "money_scale": 1.06},
+        "humanoid_general": {"xp_base": 40, "xp_scale": 1.10, "money_base_copper": 360, "money_scale": 1.07},
+        "humanoid_elite": {"xp_base": 30, "xp_scale": 1.10, "money_base_copper": 220, "money_scale": 1.07},
+        "animal": {"xp_base": 5, "xp_scale": 1.06, "money_base_copper": 0, "money_scale": 1.00},
+        "undead": {"xp_base": 12, "xp_scale": 1.08, "money_base_copper": 0, "money_scale": 1.00},
+        "monster": {"xp_base": 15, "xp_scale": 1.09, "money_base_copper": 0, "money_scale": 1.00},
+        "generic": {"xp_base": 8, "xp_scale": 1.07, "money_base_copper": 8, "money_scale": 1.03},
+    }
+    selected = profile_by_role.get(role, profile_by_role["generic"])
+
+    xp_value = int(round(float(selected["xp_base"]) + (level ** float(selected["xp_scale"]))))
+    money_value_copper = int(round(float(selected["money_base_copper"]) + (level ** float(selected["money_scale"]))))
+    if selected["money_base_copper"] <= 0:
+        money_value_copper = 0
+
+    return {
+        "role": role,
+        "level": level,
+        "xp": max(0, xp_value),
+        "money_copper": max(0, money_value_copper),
+    }
+
+
 def _reward_entry_value(item_entry):
     """Return the monetary reward value of one item or service entry in copper."""
 
@@ -3002,6 +3167,18 @@ STATE_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "grant_combat_loot",
+            "description": "Grant backend-validated loot from defeated enemies exactly once (currency, equipment, quest items).",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "resolve_attack",
             "description": "Resolve one combat attack turn and return exact backend outcome including damage and defeat flags.",
             "parameters": {
@@ -3284,6 +3461,9 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
 
     if tool_name == "get_combat_state":
         return get_combat_state(campaign_id=campaign_id)
+
+    if tool_name == "grant_combat_loot":
+        return grant_combat_loot(campaign_id=campaign_id)
 
     if tool_name == "resolve_attack":
         return resolve_attack(
