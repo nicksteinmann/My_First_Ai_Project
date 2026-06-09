@@ -61,7 +61,12 @@ def _get_or_create_resources(character: Character) -> CharacterResource:
     if character.resources:
         return character.resources
 
-    resources = CharacterResource(character_id=character.id)
+    existing = CharacterResource.query.filter_by(character_id=character.id).first()
+    if existing:
+        character.resources = existing
+        return existing
+
+    resources = CharacterResource(character=character)
     db.session.add(resources)
     db.session.flush()
     return resources

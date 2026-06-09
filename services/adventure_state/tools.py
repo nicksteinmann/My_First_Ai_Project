@@ -23,6 +23,7 @@ from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATE
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item, get_inventory, remove_inventory_item
 from services.leveling.service import add_xp
+from services.status_effects import get_status_effect_modifier_bundle, tick_status_effects
 from services.timekeeping import (
     DEFAULT_INGAME_MINUTE,
     MINUTES_PER_DAY,
@@ -682,6 +683,20 @@ def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id:
         return {"success": True, "tool": "resolve_attack", "combat": _combat_payload(combat_state)}
 
     if effective_attacker_side == "player":
+        status_bundle = get_status_effect_modifier_bundle(character.id)
+        if bool(status_bundle.get("cannot_act", False)):
+            combat_state["last_event"] = {
+                "type": "attack_skipped",
+                "attacker": character.name,
+                "reason": "status_effect_prevents_action",
+                "active_statuses": list(status_bundle.get("active_names", [])),
+            }
+            tick_status_effects(character.id, tick_mode="combat", ticks=1)
+            _advance_combat_turn(combat_state)
+            _set_combat_state(campaign, combat_state)
+            db.session.commit()
+            return {"success": True, "tool": "resolve_attack", "combat": _combat_payload(combat_state)}
+
         target = None
         if target_enemy_id:
             for enemy in alive_enemies:
@@ -701,6 +716,7 @@ def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id:
             + (float(attack_profile["weapon"].get("skill_level", 0)) * 0.95)
             + (float(attack_profile["weapon"].get("item_level", 1)) * 0.70)
             + (float(character.level or 1) * 0.70)
+            + float(attack_profile.get("status_effects", {}).get("attack_score_bonus", 0.0))
         )
         attack_score = _combat_level_adjusted_attack_score(base_attack_score, int(character.level or 1), int(target.get("level", int(character.level or 1))))
         hit_outcome = _resolve_hit_outcome(
@@ -732,6 +748,7 @@ def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id:
             "target_defeated": target.get("status") == "defeated",
             "attack_details": hit_outcome,
         }
+        tick_status_effects(character.id, tick_mode="combat", ticks=1)
     else:
         attacker = alive_enemies[0]
         defense_profile = get_defense_profile(character.id)
@@ -1624,10 +1641,12 @@ def advance_time(campaign_id: int, minutes: int):
 
     time_change = _advance_campaign_time(campaign, minutes)
     db.session.commit()
+    status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
     return {
         "success": True,
         "tool": "advance_time",
+        "status_tick": status_tick,
         **time_change,
     }
 
@@ -1653,6 +1672,7 @@ def spend_time(campaign_id: int, action_type: str, minutes=None, description: st
 
     time_change = _advance_campaign_time(campaign, resolved_minutes)
     db.session.commit()
+    status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
     return {
         "success": True,
@@ -1664,6 +1684,7 @@ def spend_time(campaign_id: int, action_type: str, minutes=None, description: st
             "min_minutes": rule["min"],
             "max_minutes": rule["max"],
         },
+        "status_tick": status_tick,
         **time_change,
     }
 
@@ -1692,11 +1713,13 @@ def rest(campaign_id: int, rest_type: str = "short"):
 
     time_change = _advance_campaign_time(campaign, minutes)
     db.session.commit()
+    status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
     return {
         "success": True,
         "tool": "rest",
         "rest_type": normalized_rest_type,
+        "status_tick": status_tick,
         **time_change,
     }
 
@@ -1796,12 +1819,14 @@ def perform_check(
     skill_effective = _normalized_check_value(skill_level)
 
     level_effective = _normalized_check_value(character.level if include_character_level else 0)
+    status_bundle = get_status_effect_modifier_bundle(character.id)
 
     player_score = (
         0.50 * primary_effective
         + 0.10 * secondary_effective
         + 0.35 * skill_effective
         + 0.05 * level_effective
+        + float(status_bundle.get("check_bonus", 0.0))
     )
     challenge_score = float(challenge_level + CHECK_TYPE_DIFFICULTY_OFFSETS[normalized_challenge_type])
     margin = player_score - challenge_score
@@ -1880,7 +1905,9 @@ def perform_check(
                 "secondary_component": round(0.10 * secondary_effective, 2),
                 "skill_component": round(0.35 * skill_effective, 2),
                 "level_component": round(0.05 * level_effective, 2),
+                "status_component": round(float(status_bundle.get("check_bonus", 0.0)), 2),
             },
+            "status_effects": status_bundle,
             "log_id": log_row.id,
         },
     }

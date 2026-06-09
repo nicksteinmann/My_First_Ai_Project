@@ -16,6 +16,7 @@ from models import (
     db,
 )
 from services.skills.service import create_custom_skill
+from services.status_effects import apply_status_effect
 from services.adventure_state.tools import (
     attempt_surrender,
     attempt_ceasefire,
@@ -40,6 +41,7 @@ from services.adventure_state.tools import (
 )
 from services.currency.service import get_currency
 from services.inventory.service import add_inventory_item, get_inventory
+from services.resources.service import get_resources
 from services.skills import ensure_core_skill_definitions
 
 
@@ -754,6 +756,96 @@ class QuestBackendTestCase(unittest.TestCase):
         granted_again = grant_combat_loot(self.campaign.id)
         self.assertTrue(granted_again["success"], granted_again)
         self.assertEqual(0, granted_again["granted_enemy_count"])
+
+    def test_blessed_improves_check_total_value(self):
+        base_result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Negotiate calmly with the merchant",
+            action_type="social",
+            challenge_level=30,
+            challenge_type="normal",
+            primary_attribute="charisma",
+            include_character_level=True,
+            forced_roll=10,
+        )
+        self.assertTrue(base_result["success"], base_result)
+
+        applied = apply_status_effect(
+            character_id=self.character.id,
+            name="Blessed",
+            effect_type="buff",
+            duration_turns=2,
+        ).to_dict()
+        self.assertTrue(applied["success"], applied)
+
+        blessed_result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Negotiate calmly with the merchant",
+            action_type="social",
+            challenge_level=30,
+            challenge_type="normal",
+            primary_attribute="charisma",
+            include_character_level=True,
+            forced_roll=10,
+        )
+        self.assertTrue(blessed_result["success"], blessed_result)
+        self.assertGreater(
+            blessed_result["check"]["total_value"],
+            base_result["check"]["total_value"],
+        )
+        self.assertGreater(
+            blessed_result["check"]["score_breakdown"]["status_component"],
+            0,
+        )
+
+    def test_spend_time_ticks_poison_and_reduces_hp(self):
+        applied = apply_status_effect(
+            character_id=self.character.id,
+            name="Poisoned",
+            effect_type="poison",
+            duration_turns=2,
+        ).to_dict()
+        self.assertTrue(applied["success"], applied)
+
+        before = get_resources(self.character.id)
+        spent = spend_time(
+            campaign_id=self.campaign.id,
+            action_type="quick_search",
+            minutes=2,
+            description="Search the room quickly",
+        )
+        self.assertTrue(spent["success"], spent)
+        self.assertIn("status_tick", spent)
+        after = get_resources(self.character.id)
+        self.assertLess(after["hp"]["current"], before["hp"]["current"])
+
+    def test_stunned_player_skips_combat_action(self):
+        applied = apply_status_effect(
+            character_id=self.character.id,
+            name="Stunned",
+            effect_type="condition",
+            duration_turns=1,
+        ).to_dict()
+        self.assertTrue(applied["success"], applied)
+
+        started = start_combat(
+            campaign_id=self.campaign.id,
+            enemies_json=json.dumps([{"name": "Bandit", "archetype_id": "bandit", "level": 6}]),
+        )
+        self.assertTrue(started["success"], started)
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["current_turn_index"] = combat["turn_order"].index("player")
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
+        resolved = resolve_attack(campaign_id=self.campaign.id, attacker_side="player")
+        self.assertTrue(resolved["success"], resolved)
+        self.assertEqual("attack_skipped", resolved["combat"]["last_event"]["type"])
+        self.assertIn("status_effect_prevents_action", resolved["combat"]["last_event"]["reason"])
 
     def test_humanoid_combat_loot_grants_xp_and_money_profile(self):
         started = start_combat(

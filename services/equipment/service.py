@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from models import Character, CharacterSkill, SkillDefinition, db
 from services.inventory.constants import DEFAULT_BASE_CONTAINER, HAND_CONTAINER_IDS, SIZE_ORDER
 from services.inventory.repository import load_inventory_blob, save_inventory_blob
+from services.status_effects import get_status_effect_modifier_bundle
 
 from .constants import (
     BELT_ATTACHMENT_SLOTS,
@@ -506,6 +507,7 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
     strength = _attribute_value(attributes, "strength")
     constitution = _attribute_value(attributes, "constitution")
     level = max(1, min(100, int(character.level or 1)))
+    status_bundle = get_status_effect_modifier_bundle(character_id)
 
     dodge_score = (
         12.0
@@ -515,6 +517,7 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
         + class_dodge_bonus_total
         + (level * 0.45)
         - (armor_rating_total * 0.10)
+        + float(status_bundle.get("dodge_score_bonus", 0.0))
     )
     block_score = (
         10.0
@@ -525,6 +528,7 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
         + class_block_bonus_total
         + (level * 0.40)
         + (armor_rating_total * 0.45)
+        + float(status_bundle.get("block_score_bonus", 0.0))
     )
 
     return {
@@ -548,6 +552,7 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
             "best_defense_score": round(max(dodge_score, block_score), 3),
             "best_defense_type": "dodge" if dodge_score >= block_score else "block",
         },
+        "status_effects": status_bundle,
     }
 
 
@@ -675,6 +680,7 @@ def get_attack_profile(character_id: int) -> Dict[str, Any]:
     weapon_item = _find_main_hand_weapon(slots)
     profile = _build_weapon_profile(weapon_item)
     skill_level = _load_character_skill_level(character_id, profile["skill_name"])
+    status_bundle = get_status_effect_modifier_bundle(character_id)
     character_level = max(1, min(100, int(character.level or 1)))
     item_level = int(profile["item_level"])
     scaling_contributions = {}
@@ -690,6 +696,7 @@ def get_attack_profile(character_id: int) -> Dict[str, Any]:
     skill_factor = 0.40 + 0.60 * ((max(0.0, min(100.0, float(skill_level))) / 100.0) ** 1.10)
     attribute_factor = 0.55 + 0.45 * ((weighted_attribute_score / 100.0) ** 1.05)
     total_factor = level_factor * weapon_factor * skill_factor * attribute_factor
+    total_factor *= float(status_bundle.get("damage_multiplier", 1.0) or 1.0)
     base_min = int(profile["base_damage_min"])
     base_max = int(profile["base_damage_max"])
     final_min = max(1, int(round(base_min * total_factor)))
@@ -727,6 +734,7 @@ def get_attack_profile(character_id: int) -> Dict[str, Any]:
             "attribute_factor": round(attribute_factor, 4),
             "total_factor": round(total_factor, 4),
         },
+        "status_effects": status_bundle,
     }
 
 
