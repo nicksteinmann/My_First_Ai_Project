@@ -514,18 +514,34 @@ Tools:
 
 ### Status Effects
 
-Character status effect tables already exist and are now serialized into the UI.
+Character status effects are now backend-driven gameplay state, not only display data.
 
-Displayed fields:
+Implemented:
 
 - name
 - effect type
 - remaining duration
 - source text
-
-Current scope:
-
-- Status effects are visible on Home, My Characters, and Community pages.
+- modifier bundles for common effects such as:
+  - poisoned
+  - bleeding
+  - burning
+  - stunned
+  - blessed
+  - fatigued
+  - slowed
+  - shielded
+  - frozen
+- backend ticking during:
+  - `advance_time`
+  - `spend_time`
+  - `rest`
+  - combat turns
+- resource loss over time for effects such as poison
+- check modifiers through `perform_check`
+- attack / dodge / block modifiers through combat and equipment profile helpers
+- temporary action lockouts for effects such as `stunned`
+- status effects remain visible on Home, My Characters, and Community pages
 
 Tools:
 
@@ -533,7 +549,11 @@ Tools:
 - apply_status_effect
 - remove_status_effect
 
-Note: automatic duration ticking and complex modifier application are future work.
+Current limitations:
+
+- effect stacking and refresh rules are still MVP-level
+- resistance, cleansing, immunity, and more advanced effect interactions are still future work
+- enemy/item/spell content still needs broader use of the new effect system
 
 ### Currency System
 
@@ -661,15 +681,13 @@ Known limitations:
 - No full round-based combat action resolver yet (current state provides attack/defense profiles and outcome preview, not full battle turns)
 - No full custom-skill balancing layer yet (metadata and domain safety exist, but balancing policies are still being tuned)
 - No level-up choice or skill point spending yet
-- No automatic status-effect duration ticking yet
-- No status-effect stat/resource modifiers yet
-- No full enemy combat state machine yet (initiative, turn order, enemy AI actions, defeat/escape loops)
+- No full enemy combat state machine yet (enemy AI actions, advanced encounter scripting, and richer round behaviors still need work)
 - No NPC system yet
 - No merchant / trading system yet
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
 - Region/subregion bounds are MVP rectangles; organic border polygons and generated-place persistence rules still need deeper map integration
 - Non-quest loot and pickup/equip changes still need stronger tool-routing enforcement
-- Travel time is applied by backend tools, but downstream systems such as timed status effects, shop refreshes, and NPC schedules are still future work
+- Travel time is applied by backend tools, but broader schedule systems such as shop refreshes and NPC routines are still future work
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
 
@@ -681,7 +699,6 @@ High priority:
 
 - Equipment stat modifiers for always-on effective character overlays (outside preview tools)
 - Direct attribute training rules
-- Status-effect duration ticking and modifier logic
 - Starting gear auto-equip
 - Advanced belt and pouch attachment rules
 - Full combat turn resolution on top of attack/defense profiles

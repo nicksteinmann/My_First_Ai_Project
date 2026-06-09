@@ -13,6 +13,7 @@ from services.resources.tools import execute_resource_tool
 from services.skills import ensure_core_skill_definitions
 from services.skills.tools import execute_skill_tool
 from services.status_effects.tools import execute_status_effect_tool
+from services.status_effects import tick_status_effects
 
 
 def _inventory_with_test_pack():
@@ -642,6 +643,30 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         )
         self.assertTrue(removed["success"], removed)
         self.assertEqual([], removed["status_effects"])
+
+    def test_status_effect_ticks_apply_resource_loss_and_expire(self):
+        applied = execute_status_effect_tool(
+            self.character.id,
+            "apply_status_effect",
+            {
+                "name": "Poisoned",
+                "effect_type": "poison",
+                "duration_turns": 2,
+            },
+        )
+        self.assertTrue(applied["success"], applied)
+
+        first_tick = tick_status_effects(self.character.id, tick_mode="time", ticks=1)
+        self.assertTrue(first_tick["success"], first_tick)
+        self.assertEqual(1, len(first_tick["status_effects"]))
+        self.assertLess(
+            first_tick["resources_after"]["hp"]["current"],
+            first_tick["resources_before"]["hp"]["current"],
+        )
+
+        second_tick = tick_status_effects(self.character.id, tick_mode="time", ticks=1)
+        self.assertTrue(second_tick["success"], second_tick)
+        self.assertEqual([], second_tick["status_effects"])
 
 
 if __name__ == "__main__":
