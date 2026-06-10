@@ -23,6 +23,7 @@ from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATE
 from services.currency.service import add_currency
 from services.inventory.service import add_inventory_item, get_inventory, remove_inventory_item
 from services.leveling.service import add_xp
+from services.npc_persistence.service import anchor_npcs_for_quest_references, cleanup_ephemeral_npcs
 from services.status_effects import get_status_effect_modifier_bundle, tick_status_effects
 from services.timekeeping import (
     DEFAULT_INGAME_MINUTE,
@@ -1402,6 +1403,8 @@ def update_location(
     if hasattr(campaign, "current_location_id"):
         campaign.current_location_id = location.id
 
+    cleanup_ephemeral_npcs(campaign_id=campaign.id, current_location_id=location.id)
+
     open_quests = (
         CampaignQuest.query
         .filter_by(campaign_id=campaign.id, status="active")
@@ -1591,6 +1594,7 @@ def move_to_coordinates(
         return moved
 
     time_change = _advance_campaign_time(campaign, travel_estimate["estimated_minutes"])
+    cleanup_ephemeral_npcs(campaign_id=campaign.id, current_location_id=campaign.current_location_id)
     db.session.commit()
 
     moved["tool"] = "move_to_coordinates"
@@ -1642,6 +1646,7 @@ def advance_time(campaign_id: int, minutes: int):
         }
 
     time_change = _advance_campaign_time(campaign, minutes)
+    cleanup_ephemeral_npcs(campaign_id=campaign.id, current_location_id=campaign.current_location_id)
     db.session.commit()
     status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
@@ -1673,6 +1678,7 @@ def spend_time(campaign_id: int, action_type: str, minutes=None, description: st
         }
 
     time_change = _advance_campaign_time(campaign, resolved_minutes)
+    cleanup_ephemeral_npcs(campaign_id=campaign.id, current_location_id=campaign.current_location_id)
     db.session.commit()
     status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
@@ -1714,6 +1720,7 @@ def rest(campaign_id: int, rest_type: str = "short"):
         }
 
     time_change = _advance_campaign_time(campaign, minutes)
+    cleanup_ephemeral_npcs(campaign_id=campaign.id, current_location_id=campaign.current_location_id)
     db.session.commit()
     status_tick = tick_status_effects(campaign.character_id, tick_mode="time", ticks=1)
 
@@ -2738,6 +2745,24 @@ def create_quest(
         reward_rules_json=reward_rules_json,
     )
     db.session.add(quest)
+    db.session.commit()
+    anchor_npcs_for_quest_references(
+        campaign_id=campaign.id,
+        npc_ids=[
+            quest_giver_npc_id,
+            turn_in_npc_id,
+            *[
+                objective.get("npc_id")
+                for objective in objectives_payload
+                if isinstance(objective, dict) and objective.get("npc_id")
+            ],
+            *[
+                service.get("provider_npc_id")
+                for service in rewards_payload.get("services", [])
+                if isinstance(service, dict) and service.get("provider_npc_id")
+            ],
+        ],
+    )
     db.session.commit()
 
     return {

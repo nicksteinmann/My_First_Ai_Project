@@ -1399,6 +1399,117 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertFalse(redeemed["redemption_result"]["price_charged"])
         self.assertEqual("morning", redeemed["redemption_result"]["time_result"]["new_time"])
 
+    def test_create_quest_marks_referenced_npcs_as_persistent_anchors(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        courier = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Courier Sella",
+            role="courier",
+            is_custom=True,
+        )
+        hedge_mage = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Hedge Mage Orrin",
+            role="mage",
+            is_custom=True,
+        )
+        db.session.add_all([courier, hedge_mage])
+        db.session.commit()
+
+        result = create_quest(
+            campaign_id=self.campaign.id,
+            title="Letters and Lessons",
+            description="Deliver a sealed letter and return for a lesson.",
+            quest_type="delivery",
+            quest_giver_npc_id=courier.id,
+            turn_in_npc_id=courier.id,
+            objectives_json=json.dumps([
+                {
+                    "objective_type": "talk_to_npc",
+                    "npc_id": hedge_mage.id,
+                }
+            ]),
+            rewards_json=json.dumps({
+                "services": [
+                    {
+                        "service_type": "training",
+                        "service_name": "One Arcane Lesson",
+                        "provider_npc_id": hedge_mage.id,
+                        "reward_value": 12,
+                        "uses": 1,
+                        "details": {
+                            "skill_name": "Arcane Lore",
+                            "training_type": "skill",
+                        },
+                    }
+                ]
+            }),
+        )
+        self.assertTrue(result["success"], result)
+
+        db.session.refresh(courier)
+        db.session.refresh(hedge_mage)
+        courier_state = json.loads(courier.state_json or "{}")
+        mage_state = json.loads(hedge_mage.state_json or "{}")
+
+        self.assertEqual("anchored", courier_state["persistence"]["mode"])
+        self.assertIn("quest_anchor", courier_state["persistence"]["reasons"])
+        self.assertIsNone(courier_state["persistence"]["expires_on_day"])
+        self.assertEqual("anchored", mage_state["persistence"]["mode"])
+        self.assertIn("quest_anchor", mage_state["persistence"]["reasons"])
+        self.assertIsNone(mage_state["persistence"]["expires_on_day"])
+
+    def test_flavor_npc_expires_after_retention_window_when_not_anchored(self):
+        market_move = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Roadside Market",
+            location_type="market",
+            description="A temporary roadside market.",
+        )
+        self.assertTrue(market_move["success"], market_move)
+
+        flavor_npc = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Passing Storyteller",
+            role="traveler",
+            is_custom=True,
+        )
+        db.session.add(flavor_npc)
+        db.session.commit()
+
+        touch = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Roadside Market",
+            location_type="market",
+        )
+        self.assertTrue(touch["success"], touch)
+        db.session.refresh(flavor_npc)
+        flavor_state = json.loads(flavor_npc.state_json or "{}")
+        self.assertEqual("ephemeral", flavor_state["persistence"]["mode"])
+        self.assertIsNotNone(flavor_state["persistence"]["expires_on_day"])
+
+        leave = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Quiet Shrine",
+            location_type="shrine",
+            description="A small quiet shrine away from the market road.",
+        )
+        self.assertTrue(leave["success"], leave)
+
+        advanced = advance_time(campaign_id=self.campaign.id, minutes=4 * 24 * 60)
+        self.assertTrue(advanced["success"], advanced)
+        self.assertIsNone(CampaignNPC.query.filter_by(id=flavor_npc.id).first())
+
     def test_fixed_location_merchants_are_created_and_inventory_is_lazy_refreshed(self):
         moved = update_location(
             campaign_id=self.campaign.id,
