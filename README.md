@@ -246,7 +246,7 @@ Reward authority:
 Current limitations:
 
 - `kill_enemy_type` and `kill_npc` are structurally prepared, but still need full combat/NPC-state integration
-- Generated NPCs still need a real NPC registry before generated turn-in targets can reliably use stable NPC ids
+- Generated NPCs now have a lightweight anchor/ephemeral persistence rule set, but still need a fuller long-term registry/life-simulation layer
 - Quest reward constants and multipliers are implemented, but still need balancing from playtests
 - Service rewards are structured, claimable, and now redeemable through backend-controlled training, meal, and lodging flows; broader service categories are still future work
 
@@ -580,6 +580,22 @@ Tools:
 - get_trainers_at_location
 - train_with_teacher
 
+### NPC Persistence Rules
+
+Generated NPC persistence now follows lightweight backend rules instead of storing every flavor person forever.
+
+Implemented:
+
+- Quest-referenced NPCs are automatically anchored when they are used as:
+  - quest givers
+  - turn-in NPCs
+  - NPC-based quest objectives
+  - service-reward providers
+- Merchant NPCs and trainer-profile NPCs are treated as stable anchors
+- Unimportant generated flavor NPCs are marked as ephemeral instead of permanent
+- Ephemeral NPCs get a short retention window and are cleaned up automatically during location/time flow
+- This keeps quest/service NPC ids stable while avoiding unnecessary database growth from one-off scene extras
+
 ### Status Effects
 
 Character status effects are now backend-driven gameplay state, not only display data.
@@ -743,6 +759,7 @@ Working:
 - Backend action-time tools for meaningful non-travel actions, rests, and sleeping until morning
 - Merchant / trade MVP with backend-generated stock, deterministic pricing, services, and buy/sell validation
 - Trainer / teacher MVP with role-based lesson discovery, scaling teaching caps, and custom-skill support
+- Lightweight NPC persistence rules for quest anchors, merchants, trainers, and expiring flavor NPCs
 - Quest service reward redemption for training, meals, and lodging
 - Multi-system tool pipeline
 - UI state refresh after game turns
@@ -769,7 +786,7 @@ Known limitations:
 
 High priority:
 
-- NPC persistence rules for generated merchants, trainers, quest anchors, and recurring contacts
+- NPC / city life seed data for important recurring places, workers, guards, and service contacts
 - Advanced belt and pouch attachment rules
 - Level-up choices and skill point spending
 - Broader service / negotiation flows for merchants, rewards, food, lodging, and city life
