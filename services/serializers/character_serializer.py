@@ -12,9 +12,11 @@ from services.attributes import serialize_attributes
 from services.equipment import build_item_bonus_lines, build_item_tooltip, get_defense_profile, get_effective_stats, serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression, serialize_level_renown
+from services.merchants import serialize_location_merchants
 from services.status_effects import serialize_status_effects
 from services.skills import serialize_character_skills
 from services.timekeeping import calendar_date_for_day
+from services.trainers import serialize_location_trainers
 from services.world_data import get_coordinate_system, normalize_coordinate
 
 SIZE_ABBREVIATIONS = {
@@ -500,6 +502,16 @@ def serialize_character(
     level_renown = serialize_level_renown(character)
     effective_stats = get_effective_stats(character.id)
     defense_profile = get_defense_profile(character.id)
+    nearby_merchants = (
+        serialize_location_merchants(campaign.id, current_location.id)
+        if campaign and current_location
+        else []
+    )
+    nearby_trainers = (
+        serialize_location_trainers(campaign.id, current_location.id)
+        if campaign and current_location
+        else []
+    )
 
     hp_current = resources.hp_current if resources else 0
     hp_max = resources.hp_max if resources else 0
@@ -579,6 +591,8 @@ def serialize_character(
             "time_of_day": campaign.current_ingame_time if campaign else "Unknown",
             "quest_summary": get_visible_campaign_quest_summary(campaign),
             "visible_quests": visible_quests,
+            "nearby_merchants": nearby_merchants,
+            "nearby_trainers": nearby_trainers,
         },
         "equipment": inventory_data["equipment"],
         "equipment_slots": inventory_data["equipment_slots"],

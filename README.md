@@ -193,6 +193,7 @@ Tools:
 - validate_quest_progress
 - turn_in_quest
 - claim_quest_rewards
+- redeem_service_reward
 
 ### Quest Rules
 
@@ -247,7 +248,7 @@ Current limitations:
 - `kill_enemy_type` and `kill_npc` are structurally prepared, but still need full combat/NPC-state integration
 - Generated NPCs still need a real NPC registry before generated turn-in targets can reliably use stable NPC ids
 - Quest reward constants and multipliers are implemented, but still need balancing from playtests
-- Service rewards are structured and claimable, but their later redemption flow still depends on future NPC/service systems
+- Service rewards are structured, claimable, and now redeemable through backend-controlled training, meal, and lodging flows; broader service categories are still future work
 
 ### Story Persistence
 
@@ -517,6 +518,68 @@ Tools:
 - add_skill_xp
 - create_custom_skill
 
+### Merchant / Trade System
+
+Backend-controlled merchants now handle stock, prices, services, and buy/sell validation.
+
+Implemented:
+
+- Fixed merchants are auto-created for known world locations based on settlement type
+- KI-generated NPCs can also become real merchants when their role or stored profile matches merchant logic
+- Generated merchants can use normal world roles such as:
+  - innkeeper
+  - merchant / trader
+  - blacksmith / smith
+  - bowyer / fletcher
+  - tailor / clothier / leatherworker
+  - apothecary / herbalist / healer
+  - mage / wizard / arcane vendor
+- Merchant stock is split into:
+  - baseline core stock with always-available common goods
+  - rotating generated stock built from backend archetype rules, item levels, rarity weights, and settlement tiers
+- Merchant prices come from backend item and location-tier rules instead of free AI guesses
+- Merchant inventories are created lazily when first inspected so unused daily stock does not bloat the database
+- Inns support backend service purchases such as meals and lodging
+- Selling items back to merchants uses backend inventory and currency validation
+- Merchant item payloads expose tooltip and bonus-line data for hover inspection in the UI
+
+Current merchant types:
+
+- innkeeper
+- general_goods
+- blacksmith
+- bowyer
+- tailor
+- apothecary
+- arcane_vendor
+
+Tools:
+
+- get_merchants_at_location
+- get_merchant_inventory
+- buy_item_from_merchant
+- sell_item_to_merchant
+- buy_merchant_service
+
+### Trainer / Teacher System
+
+Paid lessons are now backend-controlled and tied into time, money, progression, and service rewards.
+
+Implemented:
+
+- Trainers are derived from fixed or generated NPC roles plus optional stored trainer profiles
+- Teacher strength scales with role and location tier
+- Trainers have practical teaching caps so low-tier teachers cannot realistically push a high-level character to 100
+- Training cost and XP scale with lesson duration, trainer quality, and the student's current level
+- Late-game lessons become more expensive and less XP-efficient instead of staying flat and overpowered
+- Suitable NPCs can teach both core skills and custom skills when their role/profile supports it
+- Quest rewards can offer redeemable training instead of direct money
+
+Tools:
+
+- get_trainers_at_location
+- train_with_teacher
+
 ### Status Effects
 
 Character status effects are now backend-driven gameplay state, not only display data.
@@ -678,6 +741,9 @@ Working:
 - Coordinate travel tool that validates destination distance before updating the active campaign location
 - Backend travel-time estimation for coordinate and fixed-route travel, applied to the in-game clock on successful travel
 - Backend action-time tools for meaningful non-travel actions, rests, and sleeping until morning
+- Merchant / trade MVP with backend-generated stock, deterministic pricing, services, and buy/sell validation
+- Trainer / teacher MVP with role-based lesson discovery, scaling teaching caps, and custom-skill support
+- Quest service reward redemption for training, meals, and lodging
 - Multi-system tool pipeline
 - UI state refresh after game turns
 - Rule-grounded item and state interaction through backend tools
@@ -689,12 +755,11 @@ Known limitations:
 - No full custom-skill balancing layer yet (metadata and domain safety exist, but balancing policies are still being tuned)
 - No level-up choice or skill point spending yet
 - No full enemy combat state machine yet (enemy AI actions, advanced encounter scripting, and richer round behaviors still need work)
-- No NPC system yet
-- No merchant / trading system yet
+- No full persistent NPC registry / life-simulation layer yet for all generated people
 - No full quest combat resolution yet for `kill_enemy_type` / `kill_npc`
 - Region/subregion bounds are MVP rectangles; organic border polygons and generated-place persistence rules still need deeper map integration
 - Non-quest loot and pickup/equip changes still need stronger tool-routing enforcement
-- Travel time is applied by backend tools, but broader schedule systems such as shop refreshes and NPC routines are still future work
+- Travel time is applied by backend tools, but broader schedule systems such as opening hours and NPC routines are still future work
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
 
@@ -704,15 +769,13 @@ Known limitations:
 
 High priority:
 
-- Direct attribute training rules
+- NPC persistence rules for generated merchants, trainers, quest anchors, and recurring contacts
 - Advanced belt and pouch attachment rules
 - Level-up choices and skill point spending
-- Merchant / trade MVP
-- Trainer / teacher MVP
+- Broader service / negotiation flows for merchants, rewards, food, lodging, and city life
 
 Mid-term:
 
-- Merchant and trading tools
 - NPC interaction system
 - Combat system
 - Organic region/subregion polygons and generated-place persistence

@@ -6,9 +6,11 @@ from services.currency.tools import CURRENCY_TOOL_DEFINITIONS
 from services.equipment.tools import EQUIPMENT_TOOL_DEFINITIONS
 from services.inventory.tools import INVENTORY_TOOL_DEFINITIONS
 from services.leveling.tools import LEVELING_TOOL_DEFINITIONS
+from services.merchants.tools import MERCHANT_TOOL_DEFINITIONS
 from services.resources.tools import RESOURCE_TOOL_DEFINITIONS
 from services.skills.tools import SKILL_TOOL_DEFINITIONS
 from services.status_effects.tools import STATUS_EFFECT_TOOL_DEFINITIONS
+from services.trainers.tools import TRAINER_TOOL_DEFINITIONS
 
 
 def _tool_names(tool_definitions):
@@ -39,11 +41,23 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
                 "update_quest_objective_progress",
                 "claim_quest_rewards",
                 "turn_in_quest",
+                "redeem_service_reward",
             ],
             "currency": [
                 "add_currency",
                 "remove_currency",
                 "get_currency",
+            ],
+            "merchant": [
+                "get_merchants_at_location",
+                "get_merchant_inventory",
+                "buy_item_from_merchant",
+                "buy_merchant_service",
+                "sell_item_to_merchant",
+            ],
+            "trainer": [
+                "get_trainers_at_location",
+                "train_with_teacher",
             ],
             "inventory": [
                 "get_inventory",
@@ -85,6 +99,8 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
         actual = {
             "state": _tool_names(STATE_TOOL_DEFINITIONS),
             "currency": _tool_names(CURRENCY_TOOL_DEFINITIONS),
+            "merchant": _tool_names(MERCHANT_TOOL_DEFINITIONS),
+            "trainer": _tool_names(TRAINER_TOOL_DEFINITIONS),
             "inventory": _tool_names(INVENTORY_TOOL_DEFINITIONS),
             "equipment": _tool_names(EQUIPMENT_TOOL_DEFINITIONS),
             "resources": _tool_names(RESOURCE_TOOL_DEFINITIONS),

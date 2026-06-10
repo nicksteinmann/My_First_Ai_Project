@@ -41,9 +41,11 @@ from services.currency import CURRENCY_TOOL_DEFINITIONS, execute_currency_tool
 from services.equipment import EQUIPMENT_TOOL_DEFINITIONS, execute_equipment_tool
 from services.inventory import INVENTORY_TOOL_DEFINITIONS, execute_inventory_tool
 from services.leveling import LEVELING_TOOL_DEFINITIONS, execute_leveling_tool
+from services.merchants import MERCHANT_TOOL_DEFINITIONS, execute_merchant_tool
 from services.resources import RESOURCE_TOOL_DEFINITIONS, execute_resource_tool
 from services.serializers import serialize_character
 from services.skills import SKILL_TOOL_DEFINITIONS, ensure_core_skill_definitions, execute_skill_tool
+from services.trainers import TRAINER_TOOL_DEFINITIONS, execute_trainer_tool
 from services.world_data import ensure_world_template_locations, load_world_data
 from services.status_effects import STATUS_EFFECT_TOOL_DEFINITIONS, execute_status_effect_tool
 from services.story import (
@@ -369,6 +371,8 @@ def create_app() -> Flask:
         STATE_TOOL_DEFINITIONS,
         INVENTORY_TOOL_DEFINITIONS,
         CURRENCY_TOOL_DEFINITIONS,
+        MERCHANT_TOOL_DEFINITIONS,
+        TRAINER_TOOL_DEFINITIONS,
         EQUIPMENT_TOOL_DEFINITIONS,
         RESOURCE_TOOL_DEFINITIONS,
         STATUS_EFFECT_TOOL_DEFINITIONS,
@@ -378,6 +382,8 @@ def create_app() -> Flask:
         execute_state_tool,
         execute_inventory_tool,
         execute_currency_tool,
+        execute_merchant_tool,
+        execute_trainer_tool,
         execute_equipment_tool,
         execute_resource_tool,
         execute_status_effect_tool,

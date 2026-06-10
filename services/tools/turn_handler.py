@@ -391,6 +391,8 @@ def run_game_turn(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    merchant_tool_definitions,
+    trainer_tool_definitions,
     equipment_tool_definitions,
     resource_tool_definitions,
     status_effect_tool_definitions,
@@ -401,6 +403,8 @@ def run_game_turn(
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
+    execute_merchant_tool,
+    execute_trainer_tool,
     execute_equipment_tool,
     execute_resource_tool,
     execute_status_effect_tool,
@@ -422,6 +426,8 @@ def run_game_turn(
         state_tool_definitions
         + inventory_tool_definitions
         + currency_tool_definitions
+        + merchant_tool_definitions
+        + trainer_tool_definitions
         + equipment_tool_definitions
         + resource_tool_definitions
         + status_effect_tool_definitions
@@ -460,6 +466,8 @@ def run_game_turn(
             state_tool_definitions,
             inventory_tool_definitions,
             currency_tool_definitions,
+            merchant_tool_definitions,
+            trainer_tool_definitions,
             equipment_tool_definitions,
             resource_tool_definitions,
             status_effect_tool_definitions,
@@ -580,6 +588,8 @@ def run_game_turn(
                     state_tool_definitions=state_tool_definitions,
                     inventory_tool_definitions=inventory_tool_definitions,
                     currency_tool_definitions=currency_tool_definitions,
+                    merchant_tool_definitions=merchant_tool_definitions,
+                    trainer_tool_definitions=trainer_tool_definitions,
                     equipment_tool_definitions=equipment_tool_definitions,
                     resource_tool_definitions=resource_tool_definitions,
                     status_effect_tool_definitions=status_effect_tool_definitions,
@@ -589,6 +599,8 @@ def run_game_turn(
                     execute_state_tool=execute_state_tool,
                     execute_inventory_tool=execute_inventory_tool,
                     execute_currency_tool=execute_currency_tool,
+                    execute_merchant_tool=execute_merchant_tool,
+                    execute_trainer_tool=execute_trainer_tool,
                     execute_equipment_tool=execute_equipment_tool,
                     execute_resource_tool=execute_resource_tool,
                     execute_status_effect_tool=execute_status_effect_tool,

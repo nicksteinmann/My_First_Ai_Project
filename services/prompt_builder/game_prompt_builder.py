@@ -217,6 +217,8 @@ Active Character:
 - Attributes: {active_character.get('attribute_summary', 'None')}
 - Skills: {active_character.get('skill_summary', 'None')}
 - Status Effects: {active_character.get('status_effect_summary', 'None')}
+- Nearby Merchants: {", ".join(f"{merchant.get('name')} (NPC #{merchant.get('merchant_npc_id')}, {merchant.get('merchant_type')})" for merchant in current_state.get('nearby_merchants', [])) or "None"}
+- Nearby Trainers: {", ".join(f"{trainer.get('name')} (NPC #{trainer.get('trainer_npc_id')}, tier {trainer.get('trainer_tier')})" for trainer in current_state.get('nearby_trainers', [])) or "None"}
 
 {quest_context_block}
 
@@ -249,6 +251,11 @@ State Changes:
 - Use state tools for location, time, or quest updates.
     - When the player moves into a distinct room, shop, cellar, street, camp, or other place, call update_location in the same response as the arrival.
     - Use update_location for local movement inside the current map position, such as rooms, shops, cellars, streets, tavern tables, market stalls, and nearby interiors.
+    - Before claiming what a merchant sells, which fixed merchants are present, or what a merchant charges, call get_merchants_at_location or get_merchant_inventory.
+    - Use buy_item_from_merchant and sell_item_to_merchant for trade. Do not invent prices, merchant stock, or item availability in narration.
+    - Use buy_merchant_service for backend-priced inn or merchant services such as meals and beds. Do not narrate paid lodging or a paid inn meal as completed unless that tool succeeds.
+    - Before claiming who can train the player, what a trainer can teach, lesson quality, lesson price, or high-level teachability, call get_trainers_at_location.
+    - Use train_with_teacher for paid lessons. Trainer tier, level limits, time cost, custom-skill teachability, and XP scaling come from the backend, not from narration.
     - Use move_to_coordinates for overland/map movement where the character travels to another city, landmark, wilderness point, road segment, camp, ruin, pass, coast, or generated outdoor destination with its own coordinates.
     - move_to_coordinates validates distance from the backend's current coordinates, applies backend-estimated travel minutes to the campaign clock on success, and returns the resulting time change. Do not invent travel duration yourself.
     - Use spend_time for meaningful non-travel actions that take time, such as searching, eating, shopping, chores, lessons, self-training, crafting, repairs, combat resolution, or waiting.
@@ -327,9 +334,10 @@ State Changes:
           {{"xp": 19, "currency": {{"gold": 0, "silver": 2, "copper": 50}}}}
         - Services are allowed inside rewards_json as claimable rewards and must use this structure:
           {{"service_type": "training", "service_name": "One Lesson in Archery", "provider_npc_id": 45, "reward_value": 300, "uses": 1, "details": {{"skill_name": "Archery"}}}}
-        - Allowed service types: crafting, repair, training, transport, protection, access, favor
+        - Allowed service types: crafting, repair, training, meal, lodging, transport, protection, access, favor
         - repair services apply to equipment broadly, including weapons, shields, armor and worn gear
         - Services are claimable future rewards from the NPC, not instantly consumed effects
+        - Use claim_quest_rewards after turn-in to unlock stored service rewards, then redeem_service_reward at the correct NPC when the player actually consumes the lesson, meal, lodging, or similar service.
 - Use inventory tools for any item interaction (take, drop, use, consume).
     - If an NPC gives the player a physical item, letter, food, package, proof item, or similar object, call add_inventory_item in the same response.
     - If the player hands over or leaves behind a physical item, call remove_inventory_item unless quest turn-in logic already consumes it.
