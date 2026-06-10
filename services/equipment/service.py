@@ -7,6 +7,7 @@ equip items by directly mutating JSON state.
 """
 
 import json
+import math
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -167,6 +168,58 @@ ARMOR_CLASS_BONUSES = {
     "medium": {"dodge_bonus": 2.0, "block_bonus": 2.0},
     "heavy": {"dodge_bonus": -8.0, "block_bonus": 10.0},
 }
+
+ATTRIBUTE_KEYS = (
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "perception",
+    "charisma",
+)
+
+RARITY_QUALITY_TIERS = {
+    "common": 0,
+    "mundane": 0,
+    "simple": 0,
+    "uncommon": 1,
+    "fine": 1,
+    "quality": 1,
+    "masterwork": 2,
+    "rare": 2,
+    "epic": 3,
+    "mythic": 3,
+    "legendary": 4,
+    "artifact": 4,
+}
+
+LEVEL_BAND_THRESHOLDS = (
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+)
+
+RARITY_LEVEL_ATTRIBUTE_BONUSES = {
+    "common":     (0, 0, 0, 1, 1, 2, 2, 3, 4, 5),
+    "uncommon":   (0, 1, 1, 2, 3, 4, 5, 6, 7, 8),
+    "fine":       (0, 1, 1, 2, 3, 4, 5, 6, 7, 8),
+    "quality":    (0, 1, 1, 2, 3, 4, 5, 6, 7, 8),
+    "rare":       (0, 1, 2, 3, 4, 5, 6, 8, 10, 12),
+    "masterwork": (0, 1, 2, 3, 4, 5, 6, 8, 10, 12),
+    "epic":       (0, 2, 3, 5, 6, 8, 10, 12, 14, 16),
+    "mythic":     (0, 2, 3, 5, 6, 8, 10, 12, 14, 16),
+    "legendary":  (0, 2, 4, 6, 8, 10, 12, 14, 17, 20),
+    "artifact":   (1, 3, 5, 8, 10, 13, 16, 19, 22, 26),
+}
+
+COMBAT_ATTRIBUTE_SOFT_CAP = 100.0
+COMBAT_ATTRIBUTE_OVERCAP_WINDOW = 20.0
 
 
 class EquipmentOperationResult:
@@ -422,6 +475,363 @@ def _attribute_value(attributes, key: str) -> int:
     return max(0, int(getattr(attributes, key, 0) or 0))
 
 
+def normalize_combat_attribute_value(value: Any) -> float:
+    """Return combat-facing attribute value with diminishing returns past 100."""
+
+    numeric_value = max(0.0, float(value or 0.0))
+    if numeric_value <= COMBAT_ATTRIBUTE_SOFT_CAP:
+        return numeric_value
+
+    overcap = numeric_value - COMBAT_ATTRIBUTE_SOFT_CAP
+    scaled_overcap = (
+        100.0
+        * math.log1p(overcap)
+        / math.log(COMBAT_ATTRIBUTE_SOFT_CAP + 1.0)
+    )
+    return COMBAT_ATTRIBUTE_SOFT_CAP + (
+        scaled_overcap * (COMBAT_ATTRIBUTE_OVERCAP_WINDOW / 100.0)
+    )
+
+
+def _normalize_modifier_attribute_key(value: Any) -> Optional[str]:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "str": "strength",
+        "dex": "dexterity",
+        "con": "constitution",
+        "int": "intelligence",
+        "per": "perception",
+        "cha": "charisma",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if normalized in ATTRIBUTE_KEYS else None
+
+
+def _normalize_skill_bonus_name(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _load_modifier_dict(raw_value: Any) -> Dict[str, Any]:
+    if raw_value in (None, ""):
+        return {}
+    if isinstance(raw_value, dict):
+        return dict(raw_value)
+    if isinstance(raw_value, str):
+        try:
+            parsed = json.loads(raw_value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _coerce_bonus_int(value: Any) -> int:
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _item_level_value(item: Optional[Dict[str, Any]]) -> int:
+    if not item:
+        return 1
+    combat_profile = item.get("combat_profile") if isinstance(item.get("combat_profile"), dict) else {}
+    return max(1, min(100, _coerce_int(combat_profile.get("item_level", item.get("item_level")), 1)))
+
+
+def _item_quality_tier(item: Dict[str, Any]) -> int:
+    raw_value = (
+        item.get("quality")
+        or item.get("rarity")
+        or item.get("quality_tier")
+        or item.get("rarity_tier")
+    )
+    if isinstance(raw_value, (int, float)):
+        return max(0, min(4, int(raw_value)))
+    normalized = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return RARITY_QUALITY_TIERS.get(normalized, 0)
+
+
+def _normalized_item_rarity(item: Dict[str, Any]) -> str:
+    raw_value = (
+        item.get("quality")
+        or item.get("rarity")
+        or item.get("quality_tier")
+        or item.get("rarity_tier")
+    )
+    normalized = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or "common"
+
+
+def _item_level_band_index(item_level: int) -> int:
+    level_value = max(1, min(100, int(item_level or 1)))
+    for index, threshold in enumerate(LEVEL_BAND_THRESHOLDS):
+        if level_value < threshold:
+            return index
+    return len(LEVEL_BAND_THRESHOLDS)
+
+
+def _implicit_primary_attribute_bonus(item: Dict[str, Any]) -> int:
+    item_level = _item_level_value(item)
+    rarity = _normalized_item_rarity(item)
+    band_index = _item_level_band_index(item_level)
+    table = RARITY_LEVEL_ATTRIBUTE_BONUSES.get(rarity)
+    if table is None:
+        table = RARITY_LEVEL_ATTRIBUTE_BONUSES.get("common", (0,) * 10)
+    return int(table[min(band_index, len(table) - 1)])
+
+
+def _primary_scaling_attributes(profile: Dict[str, Any]) -> list[str]:
+    scaling = profile.get("scaling", {}) if isinstance(profile, dict) else {}
+    sorted_attributes = sorted(
+        (
+            (attribute_name, float(weight))
+            for attribute_name, weight in scaling.items()
+            if _normalize_modifier_attribute_key(attribute_name)
+        ),
+        key=lambda entry: entry[1],
+        reverse=True,
+    )
+    return [attribute_name for attribute_name, _weight in sorted_attributes]
+
+
+def _explicit_equipment_modifiers(item: Dict[str, Any]) -> Dict[str, Dict[str, int]]:
+    stat_modifiers = _load_modifier_dict(item.get("stat_modifiers"))
+    attribute_modifiers = _load_modifier_dict(item.get("attribute_modifiers"))
+    resource_modifiers = _load_modifier_dict(item.get("resource_modifiers"))
+    skill_modifiers = _load_modifier_dict(item.get("skill_modifiers"))
+
+    if not attribute_modifiers and isinstance(stat_modifiers.get("attributes"), dict):
+        attribute_modifiers = _load_modifier_dict(stat_modifiers.get("attributes"))
+    if not resource_modifiers and isinstance(stat_modifiers.get("resources"), dict):
+        resource_modifiers = _load_modifier_dict(stat_modifiers.get("resources"))
+    if not skill_modifiers and isinstance(stat_modifiers.get("skills"), dict):
+        skill_modifiers = _load_modifier_dict(stat_modifiers.get("skills"))
+
+    normalized_attributes = {}
+    for raw_key, raw_value in attribute_modifiers.items():
+        key = _normalize_modifier_attribute_key(raw_key)
+        if not key:
+            continue
+        normalized_attributes[key] = normalized_attributes.get(key, 0) + _coerce_bonus_int(raw_value)
+
+    normalized_resources = {}
+    for raw_key, raw_value in resource_modifiers.items():
+        key = str(raw_key or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if key not in {"hp_max", "mana_max", "energy_max"}:
+            continue
+        normalized_resources[key] = normalized_resources.get(key, 0) + _coerce_bonus_int(raw_value)
+
+    normalized_skills = {}
+    for raw_key, raw_value in skill_modifiers.items():
+        key = _normalize_skill_bonus_name(raw_key)
+        if not key:
+            continue
+        normalized_skills[key] = normalized_skills.get(key, 0) + _coerce_bonus_int(raw_value)
+
+    return {
+        "attributes": normalized_attributes,
+        "resources": normalized_resources,
+        "skills": normalized_skills,
+    }
+
+
+def _implicit_equipment_modifiers(item: Dict[str, Any]) -> Dict[str, Dict[str, int]]:
+    primary_bonus = _implicit_primary_attribute_bonus(item)
+    if primary_bonus <= 0:
+        return {"attributes": {}, "resources": {}, "skills": {}}
+
+    attribute_bonuses: Dict[str, int] = {}
+    item_type = _normalized_item_type(item)
+    armor_class = _extract_item_armor_class(item)
+
+    if item_type in {"weapon", "tool"}:
+        profile = _build_weapon_profile(item)
+        primary_attributes = _primary_scaling_attributes(profile)
+        if primary_attributes:
+            attribute_bonuses[primary_attributes[0]] = primary_bonus
+        if len(primary_attributes) > 1 and primary_bonus >= 4:
+            secondary_attribute = primary_attributes[1]
+            secondary_bonus = max(1, int(round(primary_bonus * 0.35)))
+            attribute_bonuses[secondary_attribute] = attribute_bonuses.get(secondary_attribute, 0) + secondary_bonus
+    elif item_type in {"armor", "shield", "helmet", "boots", "gloves", "clothing", "pants", "shoes", "cloak"}:
+        attribute_bonuses["constitution"] = primary_bonus
+        if armor_class == "light" and primary_bonus >= 3:
+            secondary_bonus = max(1, int(round(primary_bonus * 0.30)))
+            attribute_bonuses["dexterity"] = attribute_bonuses.get("dexterity", 0) + secondary_bonus
+        elif armor_class == "heavy" and primary_bonus >= 3:
+            secondary_bonus = max(1, int(round(primary_bonus * 0.30)))
+            attribute_bonuses["strength"] = attribute_bonuses.get("strength", 0) + secondary_bonus
+        elif armor_class == "medium" and primary_bonus >= 3:
+            secondary_bonus = max(1, int(round(primary_bonus * 0.20)))
+            attribute_bonuses["strength"] = attribute_bonuses.get("strength", 0) + secondary_bonus
+            attribute_bonuses["dexterity"] = attribute_bonuses.get("dexterity", 0) + secondary_bonus
+    elif item_type in {"ring", "amulet", "trinket"}:
+        attribute_bonuses["charisma"] = max(1, int(round(primary_bonus * 0.75)))
+
+    return {
+        "attributes": attribute_bonuses,
+        "resources": {},
+        "skills": {},
+    }
+
+
+def _merge_modifier_maps(base: Dict[str, int], extra: Dict[str, int]) -> Dict[str, int]:
+    merged = dict(base)
+    for key, value in extra.items():
+        merged[key] = merged.get(key, 0) + int(value or 0)
+    return merged
+
+
+def _item_total_equipment_modifiers(item: Dict[str, Any]) -> Dict[str, Dict[str, int]]:
+    explicit = _explicit_equipment_modifiers(item)
+    implicit = _implicit_equipment_modifiers(item)
+    return {
+        "attributes": _merge_modifier_maps(explicit["attributes"], implicit["attributes"]),
+        "resources": _merge_modifier_maps(explicit["resources"], implicit["resources"]),
+        "skills": _merge_modifier_maps(explicit["skills"], implicit["skills"]),
+    }
+
+
+def _display_attribute_label(attribute_key: str) -> str:
+    labels = {
+        "strength": "Strength",
+        "dexterity": "Dexterity",
+        "constitution": "Constitution",
+        "intelligence": "Intelligence",
+        "perception": "Perception",
+        "charisma": "Charisma",
+    }
+    return labels.get(attribute_key, str(attribute_key or "").replace("_", " ").title())
+
+
+def _display_resource_label(resource_key: str) -> str:
+    labels = {
+        "hp_max": "HP Max",
+        "mana_max": "Mana Max",
+        "energy_max": "Energy Max",
+    }
+    return labels.get(resource_key, str(resource_key or "").replace("_", " ").title())
+
+
+def _signed_bonus_text(value: Any) -> str:
+    numeric_value = int(value or 0)
+    return f"+{numeric_value}" if numeric_value >= 0 else str(numeric_value)
+
+
+def build_item_bonus_lines(item: Dict[str, Any]) -> list[str]:
+    """Return UI-friendly bonus summary lines for one item."""
+
+    modifiers = _item_total_equipment_modifiers(item or {})
+    lines = []
+
+    for attribute_key in ATTRIBUTE_KEYS:
+        bonus_value = int(modifiers["attributes"].get(attribute_key, 0) or 0)
+        if bonus_value:
+            lines.append(f"{_signed_bonus_text(bonus_value)} {_display_attribute_label(attribute_key)}")
+
+    for resource_key in ("hp_max", "mana_max", "energy_max"):
+        bonus_value = int(modifiers["resources"].get(resource_key, 0) or 0)
+        if bonus_value:
+            lines.append(f"{_signed_bonus_text(bonus_value)} {_display_resource_label(resource_key)}")
+
+    for skill_name in sorted(modifiers["skills"]):
+        bonus_value = int(modifiers["skills"].get(skill_name, 0) or 0)
+        if bonus_value:
+            lines.append(f"{_signed_bonus_text(bonus_value)} {skill_name}")
+
+    return lines
+
+
+def build_item_tooltip(item: Dict[str, Any]) -> str:
+    """Build one hover tooltip string for equipment or inventory items."""
+
+    details = [item.get("name", "Unknown Item")]
+    if item.get("description"):
+        details.append(item["description"])
+
+    bonus_lines = build_item_bonus_lines(item)
+    details.extend(bonus_lines)
+
+    details.append(f"Size: {str(item.get('size', 'small')).title()}")
+    details.append(f"Volume: {float(item.get('volume', 0) or 0):.1f}")
+    details.append(f"Weight: {float(item.get('weight', 0) or 0):.1f}")
+    return " | ".join(details)
+
+
+def _build_effective_equipment_bundle(
+    character_id: int,
+    attributes,
+    items: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    base_attributes = {
+        key: _attribute_value(attributes, key)
+        for key in ATTRIBUTE_KEYS
+    }
+    attribute_bonuses = {key: 0 for key in ATTRIBUTE_KEYS}
+    resource_bonuses = {"hp_max": 0, "mana_max": 0, "energy_max": 0}
+    skill_bonuses: Dict[str, int] = {}
+    contributing_items = []
+
+    for item in items:
+        modifiers = _item_total_equipment_modifiers(item)
+        if not any(modifiers[group] for group in ("attributes", "resources", "skills")):
+            continue
+
+        for key, value in modifiers["attributes"].items():
+            attribute_bonuses[key] = attribute_bonuses.get(key, 0) + int(value or 0)
+        for key, value in modifiers["resources"].items():
+            if key in resource_bonuses:
+                resource_bonuses[key] += int(value or 0)
+        for key, value in modifiers["skills"].items():
+            skill_bonuses[key] = skill_bonuses.get(key, 0) + int(value or 0)
+
+        contributing_items.append({
+            "item_id": item.get("item_id"),
+            "name": item.get("name"),
+            "item_level": _item_level_value(item),
+            "quality_tier": _item_quality_tier(item),
+            "modifiers": modifiers,
+        })
+
+    effective_attributes = {
+        key: max(0, base_attributes[key] + attribute_bonuses.get(key, 0))
+        for key in ATTRIBUTE_KEYS
+    }
+
+    return {
+        "character_id": character_id,
+        "attributes": {
+            key: {
+                "base": base_attributes[key],
+                "equipment_bonus": attribute_bonuses.get(key, 0),
+                "effective": effective_attributes[key],
+            }
+            for key in ATTRIBUTE_KEYS
+        },
+        "resources": {
+            key: {
+                "equipment_bonus": int(resource_bonuses.get(key, 0)),
+            }
+            for key in resource_bonuses
+        },
+        "skills": {
+            key: {
+                "equipment_bonus": int(value),
+            }
+            for key, value in skill_bonuses.items()
+            if int(value or 0) != 0
+        },
+        "attribute_values": effective_attributes,
+        "skill_bonus_values": {
+            key: int(value)
+            for key, value in skill_bonuses.items()
+            if int(value or 0) != 0
+        },
+        "contributing_items": contributing_items,
+    }
+
+
 def _extract_item_combat_stat(item: Dict[str, Any], key: str, fallback: float = 0.0) -> float:
     combat_profile = item.get("combat_profile") if isinstance(item.get("combat_profile"), dict) else {}
     if key in combat_profile:
@@ -464,6 +874,33 @@ def _load_multi_skill_levels(character_id: int, names: list[str]) -> Dict[str, i
     return levels
 
 
+def get_effective_stats(character_id: int) -> Dict[str, Any]:
+    """Return always-on effective attribute/resource/skill bonuses from equipped items."""
+
+    character = db.session.get(Character, character_id)
+    if not character:
+        return {"success": False, "message": "Character not found."}
+
+    attributes = character.attributes
+    if not attributes:
+        return {"success": False, "message": "Character attributes not found."}
+
+    inventory_blob = load_inventory_blob(character_id)
+    equipment = _get_equipment_state(inventory_blob)
+    slots = equipment.get("slots", {})
+    items = list(_iter_equipped_items(slots))
+    bundle = _build_effective_equipment_bundle(character_id, attributes, items)
+
+    return {
+        "success": True,
+        "character_id": character_id,
+        "attributes": bundle["attributes"],
+        "resources": bundle["resources"],
+        "skills": bundle["skills"],
+        "contributing_items": bundle["contributing_items"],
+    }
+
+
 def get_defense_profile(character_id: int) -> Dict[str, Any]:
     """Return defense-related combat profile from armor, shield, attributes and skills."""
 
@@ -479,9 +916,10 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
     equipment = _get_equipment_state(inventory_blob)
     slots = equipment.get("slots", {})
     items = list(_iter_equipped_items(slots))
+    effective_bundle = _build_effective_equipment_bundle(character_id, attributes, items)
     skill_levels = _load_multi_skill_levels(character_id, ["Dodging", "Blocking"])
-    dodging_skill = skill_levels.get("Dodging", 0)
-    blocking_skill = skill_levels.get("Blocking", 0)
+    dodging_skill = skill_levels.get("Dodging", 0) + int(effective_bundle["skill_bonus_values"].get("Dodging", 0))
+    blocking_skill = skill_levels.get("Blocking", 0) + int(effective_bundle["skill_bonus_values"].get("Blocking", 0))
 
     armor_rating_total = 0.0
     item_dodge_bonus_total = 0.0
@@ -503,15 +941,18 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
             class_dodge_bonus_total += ARMOR_CLASS_BONUSES[armor_class]["dodge_bonus"]
             class_block_bonus_total += ARMOR_CLASS_BONUSES[armor_class]["block_bonus"]
 
-    dexterity = _attribute_value(attributes, "dexterity")
-    strength = _attribute_value(attributes, "strength")
-    constitution = _attribute_value(attributes, "constitution")
+    dexterity = int(effective_bundle["attribute_values"]["dexterity"])
+    strength = int(effective_bundle["attribute_values"]["strength"])
+    constitution = int(effective_bundle["attribute_values"]["constitution"])
+    combat_dexterity = normalize_combat_attribute_value(dexterity)
+    combat_strength = normalize_combat_attribute_value(strength)
+    combat_constitution = normalize_combat_attribute_value(constitution)
     level = max(1, min(100, int(character.level or 1)))
     status_bundle = get_status_effect_modifier_bundle(character_id)
 
     dodge_score = (
         12.0
-        + (dexterity * 1.15)
+        + (combat_dexterity * 1.15)
         + (dodging_skill * 0.95)
         + item_dodge_bonus_total
         + class_dodge_bonus_total
@@ -521,8 +962,8 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
     )
     block_score = (
         10.0
-        + (strength * 0.55)
-        + (constitution * 0.95)
+        + (combat_strength * 0.55)
+        + (combat_constitution * 0.95)
         + (blocking_skill * 1.05)
         + item_block_bonus_total
         + class_block_bonus_total
@@ -545,6 +986,12 @@ def get_defense_profile(character_id: int) -> Dict[str, Any]:
         "skills": {
             "dodging": dodging_skill,
             "blocking": blocking_skill,
+        },
+        "effective_stats": effective_bundle,
+        "combat_attributes": {
+            "dexterity": round(combat_dexterity, 3),
+            "strength": round(combat_strength, 3),
+            "constitution": round(combat_constitution, 3),
         },
         "scores": {
             "dodge_score": round(dodge_score, 3),
@@ -679,22 +1126,31 @@ def get_attack_profile(character_id: int) -> Dict[str, Any]:
     slots = equipment.get("slots", {})
     weapon_item = _find_main_hand_weapon(slots)
     profile = _build_weapon_profile(weapon_item)
+    effective_bundle = _build_effective_equipment_bundle(character_id, attributes, list(_iter_equipped_items(slots)))
     skill_level = _load_character_skill_level(character_id, profile["skill_name"])
+    skill_level += int(effective_bundle["skill_bonus_values"].get(profile["skill_name"], 0))
     status_bundle = get_status_effect_modifier_bundle(character_id)
     character_level = max(1, min(100, int(character.level or 1)))
     item_level = int(profile["item_level"])
     scaling_contributions = {}
+    combat_attribute_values = {}
     weighted_attribute_score = 0.0
     for attribute_name, multiplier in profile["scaling"].items():
-        contribution = _attribute_value(attributes, attribute_name) * float(multiplier)
+        raw_attribute_value = float(
+            effective_bundle["attribute_values"].get(attribute_name, _attribute_value(attributes, attribute_name))
+        )
+        combat_attribute_value = normalize_combat_attribute_value(raw_attribute_value)
+        combat_attribute_values[attribute_name] = round(combat_attribute_value, 3)
+        contribution = combat_attribute_value * float(multiplier)
         scaling_contributions[attribute_name] = round(contribution, 3)
         weighted_attribute_score += contribution
 
-    weighted_attribute_score = max(0.0, min(100.0, weighted_attribute_score))
+    weighted_attribute_score = max(0.0, weighted_attribute_score)
     level_factor = float(character_level) ** 1.05
     weapon_factor = 0.35 + 0.65 * ((float(item_level) / 100.0) ** 1.15)
     skill_factor = 0.40 + 0.60 * ((max(0.0, min(100.0, float(skill_level))) / 100.0) ** 1.10)
-    attribute_factor = 0.55 + 0.45 * ((weighted_attribute_score / 100.0) ** 1.05)
+    normalized_weighted_attribute_score = normalize_combat_attribute_value(weighted_attribute_score)
+    attribute_factor = 0.55 + 0.45 * ((normalized_weighted_attribute_score / 100.0) ** 1.05)
     total_factor = level_factor * weapon_factor * skill_factor * attribute_factor
     total_factor *= float(status_bundle.get("damage_multiplier", 1.0) or 1.0)
     base_min = int(profile["base_damage_min"])
@@ -723,17 +1179,20 @@ def get_attack_profile(character_id: int) -> Dict[str, Any]:
         "scaling": {
             "weights": profile["scaling"],
             "attribute_values": {
-                key: _attribute_value(attributes, key)
+                key: int(effective_bundle["attribute_values"].get(key, _attribute_value(attributes, key)))
                 for key in profile["scaling"]
             },
+            "combat_attribute_values": combat_attribute_values,
             "contributions": scaling_contributions,
             "weighted_attribute_score": round(weighted_attribute_score, 3),
+            "normalized_weighted_attribute_score": round(normalized_weighted_attribute_score, 3),
             "level_factor": round(level_factor, 4),
             "weapon_factor": round(weapon_factor, 4),
             "skill_factor": round(skill_factor, 4),
             "attribute_factor": round(attribute_factor, 4),
             "total_factor": round(total_factor, 4),
         },
+        "effective_stats": effective_bundle,
         "status_effects": status_bundle,
     }
 
@@ -1119,15 +1578,6 @@ def serialize_equipment(character_id: int):
     slots = equipment.get("slots", {})
     serialized_slots = []
     equipped_labels = []
-
-    def build_item_tooltip(item: Dict[str, Any]) -> str:
-        details = [item.get("name", "Unknown Item")]
-        if item.get("description"):
-            details.append(item["description"])
-        details.append(f"Size: {str(item.get('size', 'small')).title()}")
-        details.append(f"Volume: {float(item.get('volume', 0) or 0):.1f}")
-        details.append(f"Weight: {float(item.get('weight', 0) or 0):.1f}")
-        return " | ".join(details)
 
     for slot in EQUIPMENT_SLOTS:
         item = slots.get(slot)

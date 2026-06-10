@@ -283,7 +283,7 @@
                                         {% for item in container["items"] %}
                                             <li
                                                 class="inventory-item"
-                                                title="{{ item.description }}{% if item.description %} | {% endif %}Size: {{ item.size_display }} | Volume: {{ item.total_volume_display }} | Weight: {{ item.total_weight_display }}"
+                                                title="{{ item.tooltip }}"
                                             >
                                                 <div class="inventory-item-main">
                                                     <strong>{{ item.display_name }}</strong>
@@ -572,11 +572,10 @@
                     html += `<ul class="inventory-item-list">`;
 
                     container.items.forEach(item => {
-                        const itemDescription = item.description ? `${item.description} | ` : "";
                         html += `
                             <li
                                 class="inventory-item"
-                                title="${escapeHtml(itemDescription)}Size: ${escapeHtml(item.size_display)} | Volume: ${escapeHtml(item.total_volume_display)} | Weight: ${escapeHtml(item.total_weight_display)}"
+                                title="${escapeHtml(item.tooltip || "")}"
                             >
                                 <div class="inventory-item-main">
                                     <strong>${escapeHtml(item.display_name)}</strong>

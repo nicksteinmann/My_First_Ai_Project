@@ -331,7 +331,6 @@ Not yet implemented:
 
 - Advanced belt attachment rules beyond the current two-slot MVP
 - More detailed belt pouch size classes
-- Persistent equipment-derived effective stat overlays outside combat preview flows
 - More detailed clothing types such as dresses occupying multiple clothing slots
 
 Combat-oriented equipment foundation now implemented:
@@ -340,8 +339,14 @@ Combat-oriented equipment foundation now implemented:
 - Family-specific base damage and scaling profiles for melee, ranged, and magic archetypes
 - Item-level aware weapon progression
 - Non-linear combat scaling based on level, weapon level, skill level, and weighted attributes
+- Always-on effective attribute overlays from equipped items
+- Modest implicit attribute buffs for higher-level, higher-quality equipment so gear progression matters without overpowering low-level balance
+- Support for explicit equipment modifiers through item modifier payloads for attributes, resources, and skills
+- Inventory and equipment hover tooltips now surface item bonus lines so players can inspect gear power directly in the UI
 - Defense profile calculation with simultaneous dodge and block scoring
 - Armor-class behavior (`light`, `medium`, `heavy`) influencing dodge vs block tendencies
+- Effective stats now feed into backend check math as well as attack and defense profiles
+- Combat formulas now allow effective attributes above 100 from equipment with diminishing returns instead of a hard attribute cutoff
 - Clear-defense zero-damage rules in outcome preview:
   - clear dodge win => 0 damage
   - clear block win => 0 damage
@@ -372,7 +377,7 @@ Tools:
 - remove_resource
 - set_resource
 
-Note: equipment stat modifiers are still future work.
+Note: resource max modifiers from equipment are now schema-supported in the effective-stat layer, but real equipped-resource syncing is still future work.
 
 ### Character Level Progression
 
@@ -655,9 +660,11 @@ Working:
 - Container inventory
 - Currency system
 - Equipment MVP
+- Always-on equipment effective stats and item-bonus tooltips
 - Weapon attack profile calculation (family, scaling, item level, skill contribution, non-linear factors)
 - Defense profile calculation (dodge/block scoring, armor class weighting, armor-related bonuses)
 - Outcome probability preview for attacker vs defender (full/partial/zero-damage distribution)
+- Combat resolver MVP with backend-controlled turn flow and combat actions
 - Resource tools for HP / Mana / Energy
 - Character status sync when HP reaches 0
 - Status effect display and tools
@@ -678,7 +685,7 @@ Working:
 Known limitations:
 
 - No vector-based RAG or external knowledge retrieval yet
-- No full round-based combat action resolver yet (current state provides attack/defense profiles and outcome preview, not full battle turns)
+- No advanced combat AI/encounter scripting layer yet beyond the current combat-turn MVP
 - No full custom-skill balancing layer yet (metadata and domain safety exist, but balancing policies are still being tuned)
 - No level-up choice or skill point spending yet
 - No full enemy combat state machine yet (enemy AI actions, advanced encounter scripting, and richer round behaviors still need work)
@@ -697,13 +704,11 @@ Known limitations:
 
 High priority:
 
-- Equipment stat modifiers for always-on effective character overlays (outside preview tools)
 - Direct attribute training rules
-- Starting gear auto-equip
 - Advanced belt and pouch attachment rules
-- Full combat turn resolution on top of attack/defense profiles
-- Skill checks with real gameplay impact
 - Level-up choices and skill point spending
+- Merchant / trade MVP
+- Trainer / teacher MVP
 
 Mid-term:
 

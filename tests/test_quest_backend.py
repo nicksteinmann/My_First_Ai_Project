@@ -17,6 +17,7 @@ from models import (
 )
 from services.skills.service import create_custom_skill
 from services.status_effects import apply_status_effect
+from services.equipment.service import equip_item
 from services.adventure_state.tools import (
     attempt_surrender,
     attempt_ceasefire,
@@ -40,6 +41,7 @@ from services.adventure_state.tools import (
     validate_quest_progress,
 )
 from services.currency.service import get_currency
+from services.equipment import normalize_combat_attribute_value
 from services.inventory.service import add_inventory_item, get_inventory
 from services.resources.service import get_resources
 from services.skills import ensure_core_skill_definitions
@@ -695,6 +697,15 @@ class QuestBackendTestCase(unittest.TestCase):
             enemies_json=json.dumps([{"name": "Raider", "hp": 95, "attack_score": 29, "allows_ceasefire": False}]),
         )
         self.assertTrue(refused_start["success"], refused_start)
+
+        campaign = db.session.get(Campaign, self.campaign.id)
+        notes = json.loads(campaign.state.notes_json or "{}") if campaign.state and campaign.state.notes_json else {}
+        combat = notes.get("combat_state", {})
+        combat["current_turn_index"] = combat["turn_order"].index("player")
+        notes["combat_state"] = combat
+        campaign.state.notes_json = json.dumps(notes)
+        db.session.commit()
+
         refused = attempt_ceasefire(self.campaign.id)
         self.assertFalse(refused["success"], refused)
         self.assertTrue(refused["combat"]["combat_ongoing"])
@@ -796,6 +807,96 @@ class QuestBackendTestCase(unittest.TestCase):
         self.assertGreater(
             blessed_result["check"]["score_breakdown"]["status_component"],
             0,
+        )
+
+    def test_high_quality_ring_improves_social_check_via_effective_attribute(self):
+        added = add_inventory_item(
+            character_id=self.character.id,
+            item={
+                "item_id": "silver_tongue_ring",
+                "name": "Silver Tongue Ring",
+                "description": "A refined ring worn by practiced negotiators.",
+                "size": "tiny",
+                "volume": 0.1,
+                "weight": 0.1,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "ring",
+                "item_level": 45,
+                "rarity": "epic",
+            },
+            quantity=1,
+        ).to_dict()
+        self.assertTrue(added["success"], added)
+
+        equipped = equip_item(
+            character_id=self.character.id,
+            item_id="silver_tongue_ring",
+            slot="ring_left",
+        ).to_dict()
+        self.assertTrue(equipped["success"], equipped)
+
+        result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Negotiate a better room price",
+            action_type="social",
+            challenge_level=30,
+            challenge_type="normal",
+            primary_attribute="charisma",
+            include_character_level=True,
+            forced_roll=10,
+        )
+        self.assertTrue(result["success"], result)
+        self.assertGreater(
+            result["check"]["primary_attribute"]["value"],
+            6,
+        )
+
+    def test_over_100_effective_attribute_still_improves_checks(self):
+        self.attributes.charisma = 100
+        db.session.commit()
+
+        added = add_inventory_item(
+            character_id=self.character.id,
+            item={
+                "item_id": "artifact_diplomat_ring",
+                "name": "Artifact Diplomat Ring",
+                "description": "A ring that pushes social grace past the natural limit.",
+                "size": "tiny",
+                "volume": 0.1,
+                "weight": 0.1,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "ring",
+                "item_level": 100,
+                "rarity": "artifact",
+            },
+            quantity=1,
+        ).to_dict()
+        self.assertTrue(added["success"], added)
+
+        equipped = equip_item(
+            character_id=self.character.id,
+            item_id="artifact_diplomat_ring",
+            slot="ring_left",
+        ).to_dict()
+        self.assertTrue(equipped["success"], equipped)
+
+        result = perform_check(
+            campaign_id=self.campaign.id,
+            action_text="Broker peace between two rival merchants",
+            action_type="social",
+            challenge_level=70,
+            challenge_type="hard",
+            primary_attribute="charisma",
+            include_character_level=True,
+            forced_roll=10,
+        )
+        self.assertTrue(result["success"], result)
+        self.assertGreater(result["check"]["primary_attribute"]["value"], 100)
+        self.assertGreater(
+            result["check"]["primary_attribute"]["effective"],
+            normalize_combat_attribute_value(100),
         )
 
     def test_spend_time_ticks_poison_and_reduces_hp(self):
