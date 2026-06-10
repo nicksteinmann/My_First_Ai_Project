@@ -10,6 +10,7 @@ from models import (
     Character,
     CharacterAttribute,
     CharacterSkill,
+    Merchant,
     SkillDefinition,
     User,
     WorldTemplate,
@@ -39,12 +40,15 @@ from services.adventure_state.tools import (
     update_location,
     update_quest_objective_progress,
     validate_quest_progress,
+    redeem_service_reward,
 )
 from services.currency.service import get_currency
 from services.equipment import normalize_combat_attribute_value
 from services.inventory.service import add_inventory_item, get_inventory
+from services.merchants.service import buy_item_from_merchant, buy_merchant_service, get_merchant_inventory, get_merchants_at_location, sell_item_to_merchant
 from services.resources.service import get_resources
 from services.skills import ensure_core_skill_definitions
+from services.trainers.service import get_trainers_at_location, train_with_teacher
 
 
 class QuestBackendTestCase(unittest.TestCase):
@@ -1232,8 +1236,543 @@ class QuestBackendTestCase(unittest.TestCase):
 
         claim = claim_quest_rewards(campaign_id=self.campaign.id, quest_id=quest_id)
         self.assertTrue(claim["success"], claim)
-        self.assertIsNotNone(claim["quest"]["reward_claimed_at"])
+        self.assertIsNone(claim["quest"]["reward_claimed_at"])
         self.assertEqual(10, self.character.xp)
+        self.assertTrue(claim["claimable_services"])
+
+    def test_redeem_training_service_reward_uses_trainer_rules(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        trainer = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Master Halric",
+            role="blacksmith",
+            is_custom=True,
+            state_json=json.dumps({
+                "trainer_profile": {
+                    "trainer_tier": 5,
+                    "max_trainable_level": 100,
+                    "patterns": ["combat_axe", "physical_craft"],
+                    "specialties": ["Axes & Hammers"],
+                    "attributes": ["strength", "constitution"],
+                }
+            }),
+        )
+        db.session.add(trainer)
+        db.session.commit()
+
+        result = create_quest(
+            campaign_id=self.campaign.id,
+            title="Forge Yard Duty",
+            description="Help in the forge yard for a lesson instead of coin.",
+            quest_type="tutorial",
+            turn_in_location_id=self.campaign.current_location_id,
+            objectives_json=json.dumps([
+                {
+                    "objective_type": "kill_enemy_type",
+                    "enemy_type": "rat",
+                    "required_count": 1,
+                    "current_count": 1,
+                    "is_completed": True,
+                }
+            ]),
+            rewards_json=json.dumps({
+                "xp": 6,
+                "services": [
+                    {
+                        "service_type": "training",
+                        "service_name": "One Smithing Lesson",
+                        "provider_npc_id": trainer.id,
+                        "reward_value": 8,
+                        "uses": 1,
+                        "details": {
+                            "skill_name": "Axes & Hammers",
+                            "training_type": "skill",
+                            "minutes": 60,
+                        },
+                    }
+                ],
+            }),
+        )
+        self.assertTrue(result["success"], result)
+        quest_id = result["quest"]["id"]
+
+        turn_in = turn_in_quest(
+            campaign_id=self.campaign.id,
+            quest_id=quest_id,
+            current_location_id=self.campaign.current_location_id,
+        )
+        self.assertTrue(turn_in["success"], turn_in)
+
+        claim = claim_quest_rewards(campaign_id=self.campaign.id, quest_id=quest_id)
+        self.assertTrue(claim["success"], claim)
+        reward_service_id = claim["claimable_services"][0]["reward_service_id"]
+
+        redeemed = redeem_service_reward(
+            campaign_id=self.campaign.id,
+            quest_id=quest_id,
+            reward_service_id=reward_service_id,
+            current_npc_id=trainer.id,
+        )
+        self.assertTrue(redeemed["success"], redeemed)
+        self.assertFalse(redeemed["redemption_result"]["price_charged"])
+        self.assertEqual("train_with_teacher", redeemed["redemption_result"]["tool"])
+        self.assertIsNotNone(redeemed["quest"]["reward_claimed_at"])
+
+    def test_redeem_lodging_service_reward_uses_merchant_service_without_charge(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        innkeeper = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "innkeeper")
+
+        result = create_quest(
+            campaign_id=self.campaign.id,
+            title="Late Shift at the Taproom",
+            description="Help the innkeeper and sleep here afterward.",
+            quest_type="tutorial",
+            turn_in_location_id=self.campaign.current_location_id,
+            turn_in_npc_id=innkeeper["merchant_npc_id"],
+            objectives_json=json.dumps([
+                {
+                    "objective_type": "kill_enemy_type",
+                    "enemy_type": "rat",
+                    "required_count": 1,
+                    "current_count": 1,
+                    "is_completed": True,
+                }
+            ]),
+            rewards_json=json.dumps({
+                "services": [
+                    {
+                        "service_type": "lodging",
+                        "service_name": "One Night Bed",
+                        "provider_npc_id": innkeeper["merchant_npc_id"],
+                        "reward_value": 8,
+                        "uses": 1,
+                        "details": {
+                            "service_id": "cheap_bed",
+                        },
+                    }
+                ],
+            }),
+        )
+        self.assertTrue(result["success"], result)
+        quest_id = result["quest"]["id"]
+
+        self.campaign.current_ingame_day = 1
+        self.campaign.current_ingame_minute = 20 * 60
+        self.campaign.current_ingame_time = "night"
+        db.session.commit()
+
+        turn_in = turn_in_quest(
+            campaign_id=self.campaign.id,
+            quest_id=quest_id,
+            current_location_id=self.campaign.current_location_id,
+            current_npc_id=innkeeper["merchant_npc_id"],
+        )
+        self.assertTrue(turn_in["success"], turn_in)
+
+        claim = claim_quest_rewards(campaign_id=self.campaign.id, quest_id=quest_id)
+        self.assertTrue(claim["success"], claim)
+
+        redeemed = redeem_service_reward(
+            campaign_id=self.campaign.id,
+            quest_id=quest_id,
+            reward_service_id=claim["claimable_services"][0]["reward_service_id"],
+            current_npc_id=innkeeper["merchant_npc_id"],
+        )
+        self.assertTrue(redeemed["success"], redeemed)
+        self.assertEqual("buy_merchant_service", redeemed["redemption_result"]["tool"])
+        self.assertFalse(redeemed["redemption_result"]["price_charged"])
+        self.assertEqual("morning", redeemed["redemption_result"]["time_result"]["new_time"])
+
+    def test_fixed_location_merchants_are_created_and_inventory_is_lazy_refreshed(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        self.assertTrue(merchants["success"], merchants)
+        self.assertTrue(any(entry["merchant_type"] == "blacksmith" for entry in merchants["merchants"]))
+        self.assertTrue(any(entry["merchant_type"] == "innkeeper" for entry in merchants["merchants"]))
+
+        blacksmith = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "blacksmith")
+        inventory = get_merchant_inventory(self.campaign.id, blacksmith["merchant_npc_id"])
+        self.assertTrue(inventory["success"], inventory)
+        self.assertTrue(inventory["inventory"])
+        self.assertTrue(any(entry["generated_ingame_day"] == 0 for entry in inventory["inventory"]))
+        self.assertTrue(any(entry["generated_ingame_day"] == self.campaign.current_ingame_day for entry in inventory["inventory"]))
+
+    def test_generated_blacksmith_npc_is_onboarded_as_merchant(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Dustmarket",
+            location_type="market",
+            description="A custom market district with locally generated NPCs.",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        smith = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Rurik Ashhand",
+            role="smith",
+            description="A soot-covered smith from a dynamically generated bazaar.",
+            is_custom=True,
+        )
+        db.session.add(smith)
+        db.session.commit()
+
+        inventory = get_merchant_inventory(self.campaign.id, smith.id)
+        self.assertTrue(inventory["success"], inventory)
+        self.assertEqual("blacksmith", inventory["merchant"]["merchant_type"])
+        self.assertTrue(any(entry["name"] == "Work Knife" for entry in inventory["inventory"]))
+        self.assertIsNotNone(Merchant.query.filter_by(campaign_npc_id=smith.id).first())
+
+    def test_generated_pattern_merchant_is_listed_with_backend_inventory_rules(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Moonmarket Court",
+            location_type="city",
+            description="A custom district known for strange scholars and traders.",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        occult_merchant = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Sel Veyra",
+            role="ritual broker",
+            description="A generated merchant dealing in arcane curios.",
+            is_custom=True,
+            state_json=json.dumps({
+                "merchant_profile": {
+                    "merchant_pattern": "magic_arcane",
+                }
+            }),
+        )
+        db.session.add(occult_merchant)
+        db.session.commit()
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        self.assertTrue(merchants["success"], merchants)
+        listed = next(entry for entry in merchants["merchants"] if entry["merchant_npc_id"] == occult_merchant.id)
+        self.assertEqual("arcane_vendor", listed["merchant_type"])
+
+        inventory = get_merchant_inventory(self.campaign.id, occult_merchant.id)
+        self.assertTrue(inventory["success"], inventory)
+        self.assertTrue(any(entry["item_type"] == "weapon" for entry in inventory["inventory"]))
+        self.assertTrue(any(entry["generated_ingame_day"] == self.campaign.current_ingame_day for entry in inventory["inventory"]))
+
+    def test_buy_item_from_merchant_adds_inventory_and_removes_money(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 0, "silver": 1, "copper": 20}
+        db.session.commit()
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        general_goods = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "general_goods")
+        inventory = get_merchant_inventory(self.campaign.id, general_goods["merchant_npc_id"])
+        item_entry = next(entry for entry in inventory["inventory"] if entry["name"] == "Torch")
+
+        before_currency = get_currency(self.character.id)
+        bought = buy_item_from_merchant(
+            self.campaign.id,
+            general_goods["merchant_npc_id"],
+            item_entry["merchant_inventory_id"],
+            quantity=2,
+        )
+        self.assertTrue(bought["success"], bought)
+        after_currency = get_currency(self.character.id)
+        self.assertLess(
+            (after_currency["gold"] * 1000) + (after_currency["silver"] * 50) + after_currency["copper"],
+            (before_currency["gold"] * 1000) + (before_currency["silver"] * 50) + before_currency["copper"],
+        )
+
+        inventory_after = get_inventory(self.character.id)
+        carried_names = [
+            item["name"]
+            for container in inventory_after["inventory"]["containers"]
+            for item in container.get("items", [])
+        ]
+        self.assertIn("Torch", carried_names)
+
+    def test_sell_item_to_merchant_pays_currency_and_removes_item(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        added = add_inventory_item(
+            character_id=self.character.id,
+            item={
+                "item_id": "spare_rope",
+                "name": "Spare Rope",
+                "description": "A spare coil of rope to sell.",
+                "size": "small",
+                "volume": 0.8,
+                "weight": 1.2,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "utility",
+                "value_copper": 60,
+            },
+            quantity=1,
+        )
+        self.assertTrue(added.success, added.message)
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        general_goods = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "general_goods")
+        before_currency = get_currency(self.character.id)
+        sold = sell_item_to_merchant(
+            self.campaign.id,
+            general_goods["merchant_npc_id"],
+            "spare_rope",
+            quantity=1,
+        )
+        self.assertTrue(sold["success"], sold)
+        after_currency = get_currency(self.character.id)
+        self.assertGreater(
+            (after_currency["gold"] * 1000) + (after_currency["silver"] * 50) + after_currency["copper"],
+            (before_currency["gold"] * 1000) + (before_currency["silver"] * 50) + before_currency["copper"],
+        )
+
+        inventory_after = get_inventory(self.character.id)
+        carried_names = [
+            item["name"]
+            for container in inventory_after["inventory"]["containers"]
+            for item in container.get("items", [])
+        ]
+        self.assertNotIn("Spare Rope", carried_names)
+
+    def test_buy_merchant_service_meal_spends_time_and_money(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 0, "silver": 1, "copper": 20}
+        db.session.commit()
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        innkeeper = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "innkeeper")
+        meal = next(service for service in innkeeper["service_offers"] if service["service_id"] == "hot_meal")
+
+        before_currency = get_currency(self.character.id)
+        before_minute = self.campaign.current_ingame_minute
+        result = buy_merchant_service(
+            self.campaign.id,
+            innkeeper["merchant_npc_id"],
+            meal["service_id"],
+        )
+        self.assertTrue(result["success"], result)
+        after_currency = get_currency(self.character.id)
+        self.assertLess(
+            (after_currency["gold"] * 1000) + (after_currency["silver"] * 50) + after_currency["copper"],
+            (before_currency["gold"] * 1000) + (before_currency["silver"] * 50) + before_currency["copper"],
+        )
+        self.assertEqual("spend_time", result["time_result"]["tool"])
+        self.assertGreater(result["time_result"]["new_minute"], before_minute)
+
+    def test_buy_merchant_service_bed_advances_to_morning(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 0, "silver": 2, "copper": 0}
+        self.campaign.current_ingame_day = 1
+        self.campaign.current_ingame_minute = 20 * 60
+        self.campaign.current_ingame_time = "night"
+        db.session.commit()
+
+        merchants = get_merchants_at_location(self.campaign.id)
+        innkeeper = next(entry for entry in merchants["merchants"] if entry["merchant_type"] == "innkeeper")
+
+        result = buy_merchant_service(
+            self.campaign.id,
+            innkeeper["merchant_npc_id"],
+            "cheap_bed",
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual("rest", result["time_result"]["tool"])
+        self.assertEqual("morning", result["time_result"]["new_time"])
+        self.assertEqual(2, result["time_result"]["new_day"])
+
+    def test_get_trainers_at_location_lists_role_based_trainers(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+
+        trainers = get_trainers_at_location(self.campaign.id)
+        self.assertTrue(trainers["success"], trainers)
+        self.assertTrue(any(entry["role"] == "blacksmith" for entry in trainers["trainers"]))
+        self.assertTrue(any(entry["role"] == "apothecary" for entry in trainers["trainers"]))
+
+    def test_train_with_teacher_can_create_and_train_custom_skill_from_matching_role(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Appleford",
+            location_type="village",
+            world_location_id="appleford",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 0, "silver": 3, "copper": 0}
+        db.session.commit()
+
+        woodcutter = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Old Bran",
+            role="woodcutter",
+            is_custom=True,
+        )
+        db.session.add(woodcutter)
+        db.session.commit()
+
+        result = train_with_teacher(
+            campaign_id=self.campaign.id,
+            trainer_npc_id=woodcutter.id,
+            training_type="skill",
+            target_name="Woodcutting",
+            minutes=60,
+            allow_create_skill=True,
+            linked_attribute="strength",
+            secondary_attributes=["constitution"],
+            allowed_domains=["crafting", "exploration"],
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual("teacher_training", result["time_result"]["action_type"])
+        self.assertEqual("Woodcutting", result["training"]["target_name"])
+        self.assertGreater(result["training"]["xp_awarded"], 0)
+        self.assertLess(
+            (result["currency"]["gold"] * 1000) + (result["currency"]["silver"] * 50) + result["currency"]["copper"],
+            150,
+        )
+        self.assertTrue(any(skill["name"] == "Woodcutting" for skill in result["xp_result"]["skills"]))
+
+    def test_train_with_teacher_blocks_overleveled_student_for_low_tier_trainer(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Appleford",
+            location_type="village",
+            world_location_id="appleford",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 1, "silver": 0, "copper": 0}
+        self._set_skill_level("Axes & Hammers", 80)
+
+        trainers = get_trainers_at_location(self.campaign.id)
+        blacksmith = next(entry for entry in trainers["trainers"] if entry["role"] == "blacksmith")
+        result = train_with_teacher(
+            campaign_id=self.campaign.id,
+            trainer_npc_id=blacksmith["trainer_npc_id"],
+            training_type="skill",
+            target_name="Axes & Hammers",
+            minutes=60,
+        )
+        self.assertFalse(result["success"], result)
+        self.assertIn("cannot meaningfully train", result["message"])
+
+    def test_train_with_teacher_scales_down_xp_and_up_price_at_high_levels(self):
+        moved = update_location(
+            campaign_id=self.campaign.id,
+            location_name="Willowbrook",
+            location_type="city",
+            world_location_id="willowbrook",
+        )
+        self.assertTrue(moved["success"], moved)
+        self.character.currency_json = {"gold": 5, "silver": 0, "copper": 0}
+        db.session.commit()
+
+        master_smith = CampaignNPC(
+            campaign_id=self.campaign.id,
+            current_location_id=self.campaign.current_location_id,
+            name="Master Halric",
+            role="blacksmith",
+            is_custom=True,
+            state_json=json.dumps({
+                "trainer_profile": {
+                    "trainer_tier": 5,
+                    "max_trainable_level": 100,
+                    "patterns": ["combat_axe", "physical_craft", "trade_craft"],
+                    "specialties": ["Axes & Hammers"],
+                    "attributes": ["strength", "constitution"],
+                }
+            }),
+        )
+        db.session.add(master_smith)
+        db.session.commit()
+
+        low_result = train_with_teacher(
+            campaign_id=self.campaign.id,
+            trainer_npc_id=master_smith.id,
+            training_type="skill",
+            target_name="Axes & Hammers",
+            minutes=60,
+        )
+        self.assertTrue(low_result["success"], low_result)
+        low_xp = low_result["training"]["xp_awarded"]
+        low_price = (
+            low_result["price"]["gold"] * 1000
+            + low_result["price"]["silver"] * 50
+            + low_result["price"]["copper"]
+        )
+
+        self._set_skill_level("Axes & Hammers", 90)
+        self.character.currency_json = {"gold": 5, "silver": 0, "copper": 0}
+        db.session.commit()
+
+        high_result = train_with_teacher(
+            campaign_id=self.campaign.id,
+            trainer_npc_id=master_smith.id,
+            training_type="skill",
+            target_name="Axes & Hammers",
+            minutes=60,
+        )
+        self.assertTrue(high_result["success"], high_result)
+        high_xp = high_result["training"]["xp_awarded"]
+        high_price = (
+            high_result["price"]["gold"] * 1000
+            + high_result["price"]["silver"] * 50
+            + high_result["price"]["copper"]
+        )
+
+        self.assertLess(high_xp, low_xp)
+        self.assertGreater(high_price, low_price)
 
 
 if __name__ == "__main__":

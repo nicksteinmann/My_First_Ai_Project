@@ -91,6 +91,8 @@ SERVICE_SCHEMA = {
     "crafting": {"required": ["provider_npc_id", "reward_value", "uses"]},
     "repair": {"required": ["provider_npc_id", "reward_value", "uses"]},
     "training": {"required": ["provider_npc_id", "reward_value", "uses"]},
+    "meal": {"required": ["provider_npc_id", "reward_value", "uses"]},
+    "lodging": {"required": ["provider_npc_id", "reward_value", "uses"]},
     "transport": {"required": ["provider_npc_id", "reward_value", "uses"]},
     "protection": {"required": ["provider_npc_id", "reward_value", "uses"]},
     "access": {"required": ["provider_npc_id", "reward_value", "uses"]},
@@ -124,8 +126,8 @@ ACTION_TIME_RULES = {
     "trade": {"default": 5, "min": 1, "max": 5},
     "chore": {"default": 60, "min": 30, "max": 120},
     "paid_work": {"default": 60, "min": 30, "max": 120},
-    "lesson": {"default": 60, "min": 60, "max": 60},
-    "teacher_training": {"default": 60, "min": 60, "max": 60},
+    "lesson": {"default": 60, "min": 30, "max": 120},
+    "teacher_training": {"default": 60, "min": 30, "max": 120},
     "self_training": {"default": 15, "min": 5, "max": 60},
     "crafting_quick": {"default": 10, "min": 5, "max": 30},
     "repair_quick": {"default": 10, "min": 5, "max": 30},
@@ -1999,6 +2001,53 @@ def _serialize_quest_record(quest):
     }
 
 
+def _quest_rewards_payload(quest) -> dict:
+    payload = _load_json_payload(quest.rewards_json, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_quest_rewards_payload(quest, rewards_payload: dict) -> None:
+    quest.rewards_json = json.dumps(rewards_payload or {}, ensure_ascii=False)
+
+
+def _service_reward_id(index: int, service: dict) -> str:
+    provider_id = int(service.get("provider_npc_id", 0) or 0)
+    service_type = _normalize_text(service.get("service_type")) or "service"
+    return f"svc_{provider_id}_{service_type}_{index}"
+
+
+def _prepare_claimable_services(services) -> list[dict]:
+    prepared = []
+    for index, service in enumerate(services or []):
+        if not isinstance(service, dict):
+            continue
+        entry = dict(service)
+        uses = max(1, int(entry.get("uses", 1) or 1))
+        entry.setdefault("reward_service_id", _service_reward_id(index, entry))
+        entry["uses"] = uses
+        entry["uses_remaining"] = max(0, int(entry.get("uses_remaining", uses) or 0))
+        prepared.append(entry)
+    return prepared
+
+
+def _claimable_services_from_rewards(rewards: dict) -> list[dict]:
+    return _prepare_claimable_services(rewards.get("services", []))
+
+
+def _non_service_rewards_claimed(rewards: dict) -> bool:
+    return bool(rewards.get("_non_service_rewards_claimed"))
+
+
+def _mark_non_service_rewards_claimed(rewards: dict) -> dict:
+    updated = dict(rewards or {})
+    updated["_non_service_rewards_claimed"] = True
+    return updated
+
+
+def _all_service_rewards_consumed(services: list[dict]) -> bool:
+    return bool(services) and all(int(entry.get("uses_remaining", 0) or 0) <= 0 for entry in services if isinstance(entry, dict))
+
+
 def _normalize_rewards_payload(rewards_payload, reward_rules: dict | None = None):
     """Normalize flexible quest rewards into the backend reward structure."""
 
@@ -2579,8 +2628,8 @@ def _grant_quest_rewards(character_id: int, rewards: dict, reward_items):
 def _has_claimable_service_rewards(rewards: dict) -> bool:
     """Return whether a reward payload contains deferred service rewards."""
 
-    services = rewards.get("services", [])
-    return isinstance(services, list) and any(isinstance(entry, dict) for entry in services)
+    services = _claimable_services_from_rewards(rewards)
+    return any(isinstance(entry, dict) and int(entry.get("uses_remaining", 0) or 0) > 0 for entry in services)
 
 
 def _consume_turn_in_items(character_id: int, objectives):
@@ -2945,9 +2994,6 @@ def claim_quest_rewards(campaign_id: int, quest_id: int):
     if error:
         return {"success": False, "error": error}
 
-    if quest.reward_claimed_at:
-        return {"success": False, "error": "Quest rewards have already been claimed."}
-
     if quest.status != "turned_in" or not quest.turned_in_at:
         return {"success": False, "error": "Quest must be turned in before rewards can be claimed."}
 
@@ -2959,13 +3005,23 @@ def claim_quest_rewards(campaign_id: int, quest_id: int):
             "details": {"validation_errors": validation_errors},
         }
 
-    reward_grants = _grant_quest_rewards(
-        character_id=campaign.character_id,
-        rewards=rewards,
-        reward_items=reward_items,
-    )
+    if quest.reward_claimed_at and (_non_service_rewards_claimed(rewards) or not _has_claimable_service_rewards(rewards)):
+        return {"success": False, "error": "Quest rewards have already been claimed."}
 
-    quest.reward_claimed_at = datetime.utcnow()
+    reward_grants = None
+    if not _non_service_rewards_claimed(rewards):
+        reward_grants = _grant_quest_rewards(
+            character_id=campaign.character_id,
+            rewards=rewards,
+            reward_items=reward_items,
+        )
+        rewards = _mark_non_service_rewards_claimed(rewards)
+
+    claimable_services = _claimable_services_from_rewards(rewards)
+    rewards["services"] = claimable_services
+    if not claimable_services or _all_service_rewards_consumed(claimable_services):
+        quest.reward_claimed_at = datetime.utcnow()
+    _save_quest_rewards_payload(quest, rewards)
     db.session.commit()
 
     return {
@@ -2973,6 +3029,117 @@ def claim_quest_rewards(campaign_id: int, quest_id: int):
         "tool": "claim_quest_rewards",
         "quest": _serialize_quest_record(quest),
         "reward_grants": reward_grants,
+        "claimable_services": claimable_services,
+    }
+
+
+def redeem_service_reward(
+    campaign_id: int,
+    quest_id: int,
+    reward_service_id: str,
+    current_npc_id: int | None = None,
+    target_name: str | None = None,
+    training_type: str | None = None,
+):
+    """Redeem one stored quest service reward with the matching NPC."""
+
+    campaign = db.session.get(Campaign, campaign_id)
+    if not campaign:
+        return {"success": False, "error": "Campaign not found."}
+
+    quest, error = _get_campaign_quest(campaign, quest_id)
+    if error:
+        return {"success": False, "error": error}
+
+    if quest.status != "turned_in" or not quest.turned_in_at:
+        return {"success": False, "error": "Quest must be turned in before service rewards can be redeemed."}
+
+    rewards = _quest_rewards_payload(quest)
+    if not _non_service_rewards_claimed(rewards):
+        return {"success": False, "error": "Quest rewards must be claimed before service redemption."}
+
+    services = _claimable_services_from_rewards(rewards)
+    reward_service = None
+    reward_index = None
+    for index, entry in enumerate(services):
+        if str(entry.get("reward_service_id", "")).strip().lower() == str(reward_service_id or "").strip().lower():
+            reward_service = entry
+            reward_index = index
+            break
+
+    if reward_service is None:
+        return {"success": False, "error": "Service reward not found."}
+    if int(reward_service.get("uses_remaining", 0) or 0) <= 0:
+        return {"success": False, "error": "Service reward has already been fully used."}
+
+    provider_npc_id = int(reward_service.get("provider_npc_id", 0) or 0)
+    if current_npc_id is not None and int(current_npc_id) != provider_npc_id:
+        return {"success": False, "error": "This service reward belongs to a different NPC."}
+
+    service_type = _normalize_text(reward_service.get("service_type"))
+    reward_context = {
+        "quest_id": quest.id,
+        "reward_service_id": reward_service.get("reward_service_id"),
+        "reward_value": int(reward_service.get("reward_value", 0) or 0),
+    }
+    details = reward_service.get("details", {}) if isinstance(reward_service.get("details"), dict) else {}
+
+    if service_type == "training":
+        from services.trainers.service import train_with_teacher
+
+        resolved_target_name = target_name or details.get("skill_name") or details.get("attribute")
+        resolved_training_type = training_type or details.get("training_type")
+        if not resolved_target_name:
+            return {"success": False, "error": "Training reward requires a target_name or stored skill/attribute detail."}
+        if not resolved_training_type:
+            resolved_training_type = "attribute" if details.get("attribute") else "skill"
+
+        redemption_result = train_with_teacher(
+            campaign_id=campaign.id,
+            trainer_npc_id=provider_npc_id,
+            training_type=resolved_training_type,
+            target_name=resolved_target_name,
+            minutes=details.get("minutes", 60),
+            allow_create_skill=bool(details.get("allow_create_skill", False)),
+            linked_attribute=details.get("linked_attribute"),
+            secondary_attributes=details.get("secondary_attributes"),
+            aliases=details.get("aliases"),
+            allowed_domains=details.get("allowed_domains"),
+            charge_price=False,
+            reward_context=reward_context,
+        )
+    elif service_type in {"meal", "lodging"}:
+        from services.merchants.service import buy_merchant_service
+
+        resolved_service_id = details.get("service_id")
+        if not resolved_service_id:
+            resolved_service_id = "hot_meal" if service_type == "meal" else "cheap_bed"
+        redemption_result = buy_merchant_service(
+            campaign_id=campaign.id,
+            merchant_npc_id=provider_npc_id,
+            service_id=resolved_service_id,
+            charge_price=False,
+            reward_context=reward_context,
+        )
+    else:
+        return {"success": False, "error": f"Service redemption for '{service_type}' is not implemented yet."}
+
+    if not redemption_result.get("success"):
+        return redemption_result
+
+    services[reward_index]["uses_remaining"] = max(0, int(services[reward_index].get("uses_remaining", 0) or 0) - 1)
+    rewards["services"] = services
+    if _all_service_rewards_consumed(services):
+        quest.reward_claimed_at = datetime.utcnow()
+    _save_quest_rewards_payload(quest, rewards)
+    db.session.commit()
+
+    return {
+        "success": True,
+        "tool": "redeem_service_reward",
+        "quest": _serialize_quest_record(quest),
+        "reward_service": services[reward_index],
+        "redemption_result": redemption_result,
     }
 
 
@@ -3433,6 +3600,39 @@ STATE_TOOL_DEFINITIONS = [
                 "required": ["quest_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "redeem_service_reward",
+            "description": "Redeem one stored quest service reward such as a lesson, meal, or lodging with the matching NPC.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {
+                        "type": "integer",
+                        "description": "Required quest id from Visible Quests."
+                    },
+                    "reward_service_id": {
+                        "type": "string",
+                        "description": "Required service reward id from claim_quest_rewards or the visible quest reward payload."
+                    },
+                    "current_npc_id": {
+                        "type": "integer",
+                        "description": "Optional current campaign NPC id to verify the player is redeeming the service at the correct NPC."
+                    },
+                    "target_name": {
+                        "type": "string",
+                        "description": "Optional training target name when redeeming a training service."
+                    },
+                    "training_type": {
+                        "type": "string",
+                        "description": "Optional training type: skill or attribute."
+                    }
+                },
+                "required": ["quest_id", "reward_service_id"]
+            }
+        }
     }
 ]
 
@@ -3588,6 +3788,16 @@ def execute_state_tool(campaign_id: int, tool_name: str, arguments: dict):
         return claim_quest_rewards(
             campaign_id=campaign_id,
             quest_id=arguments.get("quest_id"),
+        )
+
+    if tool_name == "redeem_service_reward":
+        return redeem_service_reward(
+            campaign_id=campaign_id,
+            quest_id=arguments.get("quest_id"),
+            reward_service_id=arguments.get("reward_service_id"),
+            current_npc_id=arguments.get("current_npc_id"),
+            target_name=arguments.get("target_name"),
+            training_type=arguments.get("training_type"),
         )
 
     return {

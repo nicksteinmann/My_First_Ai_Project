@@ -214,6 +214,8 @@ def get_valid_tool_names(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    merchant_tool_definitions=None,
+    trainer_tool_definitions=None,
     equipment_tool_definitions=None,
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
@@ -223,6 +225,8 @@ def get_valid_tool_names(
 ):
     """Return all canonical and compatibility tool names accepted this turn."""
 
+    merchant_tool_definitions = merchant_tool_definitions or []
+    trainer_tool_definitions = trainer_tool_definitions or []
     equipment_tool_definitions = equipment_tool_definitions or []
     resource_tool_definitions = resource_tool_definitions or []
     status_effect_tool_definitions = status_effect_tool_definitions or []
@@ -234,6 +238,8 @@ def get_valid_tool_names(
         *(t["function"]["name"] for t in state_tool_definitions),
         *(t["function"]["name"] for t in inventory_tool_definitions),
         *(t["function"]["name"] for t in currency_tool_definitions),
+        *(t["function"]["name"] for t in merchant_tool_definitions),
+        *(t["function"]["name"] for t in trainer_tool_definitions),
         *(t["function"]["name"] for t in equipment_tool_definitions),
         *(t["function"]["name"] for t in resource_tool_definitions),
         *(t["function"]["name"] for t in status_effect_tool_definitions),
@@ -262,6 +268,8 @@ def resolve_tool_calls(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    merchant_tool_definitions=None,
+    trainer_tool_definitions=None,
     equipment_tool_definitions=None,
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
@@ -290,6 +298,8 @@ def resolve_tool_calls(
                 state_tool_definitions,
                 inventory_tool_definitions,
                 currency_tool_definitions,
+                merchant_tool_definitions,
+                trainer_tool_definitions,
                 equipment_tool_definitions,
                 resource_tool_definitions,
                 status_effect_tool_definitions,
@@ -332,6 +342,8 @@ def execute_normalized_tool(
     state_tool_definitions,
     inventory_tool_definitions,
     currency_tool_definitions,
+    merchant_tool_definitions,
+    trainer_tool_definitions,
     equipment_tool_definitions,
     resource_tool_definitions,
     status_effect_tool_definitions,
@@ -341,6 +353,8 @@ def execute_normalized_tool(
     execute_state_tool,
     execute_inventory_tool,
     execute_currency_tool,
+    execute_merchant_tool,
+    execute_trainer_tool,
     execute_equipment_tool,
     execute_resource_tool,
     execute_status_effect_tool,
@@ -353,6 +367,8 @@ def execute_normalized_tool(
     state_tool_names = [t["function"]["name"] for t in state_tool_definitions]
     inventory_tool_names = [t["function"]["name"] for t in inventory_tool_definitions]
     currency_tool_names = [t["function"]["name"] for t in currency_tool_definitions]
+    merchant_tool_names = [t["function"]["name"] for t in merchant_tool_definitions]
+    trainer_tool_names = [t["function"]["name"] for t in trainer_tool_definitions]
     equipment_tool_names = [t["function"]["name"] for t in equipment_tool_definitions]
     resource_tool_names = [t["function"]["name"] for t in resource_tool_definitions]
     status_effect_tool_names = [t["function"]["name"] for t in status_effect_tool_definitions]
@@ -379,6 +395,20 @@ def execute_normalized_tool(
             character_id=character_id,
             tool_name=normalized_tool_name,
             arguments=normalized_tool_args
+        )
+
+    if normalized_tool_name in merchant_tool_names and execute_merchant_tool:
+        return execute_merchant_tool(
+            campaign_id=campaign_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args,
+        )
+
+    if normalized_tool_name in trainer_tool_names and execute_trainer_tool:
+        return execute_trainer_tool(
+            campaign_id=campaign_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args,
         )
 
     if normalized_tool_name in equipment_tool_names and execute_equipment_tool:
