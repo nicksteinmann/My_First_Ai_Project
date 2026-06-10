@@ -9,7 +9,7 @@ import json
 
 from models import CampaignLocation
 from services.attributes import serialize_attributes
-from services.equipment import serialize_equipment
+from services.equipment import build_item_bonus_lines, build_item_tooltip, get_defense_profile, get_effective_stats, serialize_equipment
 from services.inventory.service import get_inventory
 from services.leveling import serialize_level_progression, serialize_level_renown
 from services.status_effects import serialize_status_effects
@@ -164,6 +164,8 @@ def get_character_inventory_data(character_id):
                 "item_id": item.get("item_id"),
                 "name": item.get("name", "Unknown Item"),
                 "description": item.get("description", ""),
+                "bonus_lines": build_item_bonus_lines(item),
+                "tooltip": build_item_tooltip(item),
                 "size": item.get("size", "small"),
                 "size_display": _format_size_label(item.get("size", "small")),
                 "size_abbreviation": _format_size_abbreviation(item.get("size", "small")),
@@ -463,6 +465,23 @@ def _serialize_current_location_context(current_location):
     }
 
 
+def _apply_effective_attribute_overlay(serialized_attributes, effective_stats):
+    """Overlay equipment-driven effective values onto serialized attribute rows."""
+
+    effective_attributes = (effective_stats or {}).get("attributes", {}) if isinstance(effective_stats, dict) else {}
+    overlaid = []
+    for attribute in serialized_attributes:
+        key = attribute.get("key")
+        payload = effective_attributes.get(key) or {}
+        updated = dict(attribute)
+        updated["base_level"] = int(attribute.get("level", 0) or 0)
+        updated["equipment_bonus"] = int(payload.get("equipment_bonus", 0) or 0)
+        updated["effective_level"] = int(payload.get("effective", updated["base_level"]) or updated["base_level"])
+        updated["level"] = updated["effective_level"]
+        overlaid.append(updated)
+    return overlaid
+
+
 def serialize_character(
     character,
     get_active_campaign_for_character,
@@ -479,6 +498,8 @@ def serialize_character(
     status_effects = get_character_status_effects(character.id)
     level_progression = serialize_level_progression(character)
     level_renown = serialize_level_renown(character)
+    effective_stats = get_effective_stats(character.id)
+    defense_profile = get_defense_profile(character.id)
 
     hp_current = resources.hp_current if resources else 0
     hp_max = resources.hp_max if resources else 0
@@ -488,6 +509,8 @@ def serialize_character(
     energy_max = resources.energy_max if resources else 0
 
     serialized_attributes = serialize_attributes(attributes)
+    if effective_stats.get("success"):
+        serialized_attributes = _apply_effective_attribute_overlay(serialized_attributes, effective_stats)
     serialized_skills = serialize_character_skills(character)
     carry_load = _build_carry_load(serialized_attributes, inventory_data)
     attribute_summary = ", ".join(
@@ -522,9 +545,20 @@ def serialize_character(
             "energy": energy_current,
             "energy_max": energy_max,
             "currency": character.currency_json,
+            "armor_rating": (
+                defense_profile.get("armor", {}).get("armor_rating_total", 0)
+                if defense_profile.get("success")
+                else 0
+            ),
         },
         "attributes": serialized_attributes,
         "attribute_summary": attribute_summary,
+        "effective_stats": effective_stats if effective_stats.get("success") else None,
+        "combat_overview": {
+            "armor_rating": defense_profile.get("armor", {}).get("armor_rating_total", 0) if defense_profile.get("success") else 0,
+            "dodge_score": defense_profile.get("scores", {}).get("dodge_score", 0) if defense_profile.get("success") else 0,
+            "block_score": defense_profile.get("scores", {}).get("block_score", 0) if defense_profile.get("success") else 0,
+        },
         "skills": serialized_skills,
         "skill_summary": ", ".join(
             f"{skill['name']} {skill['level']}"

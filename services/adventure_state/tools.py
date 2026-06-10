@@ -16,7 +16,7 @@ from models import (
     SkillCheckLog,
     SkillDefinition,
 )
-from services.equipment.service import get_attack_profile, get_defense_profile
+from services.equipment.service import get_attack_profile, get_defense_profile, get_effective_stats
 from services.resources.service import get_resources, remove_resource
 from services.skills.constants import CORE_SKILLS
 from services.currency.constants import GOLD_TO_COPPER, CURRENCY_CONVERSION_RATES
@@ -1802,20 +1802,39 @@ def perform_check(
     if roll_value is None:
         return {"success": False, "error": "forced_roll must be an integer between 1 and 20 when provided."}
 
-    primary_attribute_value = int(getattr(attributes, resolved_primary_attribute, 0) or 0)
+    effective_stats = get_effective_stats(character.id)
+    if not effective_stats.get("success"):
+        return {"success": False, "error": effective_stats.get("message", "Effective stats unavailable.")}
+
+    effective_attribute_values = {
+        key: int(payload.get("effective", 0))
+        for key, payload in (effective_stats.get("attributes") or {}).items()
+    }
+
+    primary_attribute_value = int(
+        effective_attribute_values.get(
+            resolved_primary_attribute,
+            getattr(attributes, resolved_primary_attribute, 0) or 0,
+        )
+    )
     primary_effective = _normalized_check_value(primary_attribute_value)
 
     secondary_effective = 0.0
     secondary_values = []
     if resolved_secondary_attributes:
         secondary_values = [
-            int(getattr(attributes, attribute_key, 0) or 0)
+            int(effective_attribute_values.get(attribute_key, getattr(attributes, attribute_key, 0) or 0))
             for attribute_key in resolved_secondary_attributes
         ]
         if secondary_values:
             secondary_effective = _normalized_check_value(sum(secondary_values) / len(secondary_values))
 
     skill_level = int(skill_context["skill_level"]) if skill_context else 0
+    if skill_name:
+        for known_skill_name, payload in (effective_stats.get("skills") or {}).items():
+            if _skill_name_key(known_skill_name) == _skill_name_key(skill_name):
+                skill_level += int(payload.get("equipment_bonus", 0) or 0)
+                break
     skill_effective = _normalized_check_value(skill_level)
 
     level_effective = _normalized_check_value(character.level if include_character_level else 0)
@@ -1907,6 +1926,7 @@ def perform_check(
                 "level_component": round(0.05 * level_effective, 2),
                 "status_component": round(float(status_bundle.get("check_bonus", 0.0)), 2),
             },
+            "effective_stats": effective_stats,
             "status_effects": status_bundle,
             "log_id": log_row.id,
         },

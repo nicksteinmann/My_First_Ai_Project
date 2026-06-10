@@ -12,8 +12,10 @@ from services.leveling.tools import execute_leveling_tool
 from services.resources.tools import execute_resource_tool
 from services.skills import ensure_core_skill_definitions
 from services.skills.tools import execute_skill_tool
+from services.equipment import get_effective_stats, normalize_combat_attribute_value
 from services.status_effects.tools import execute_status_effect_tool
 from services.status_effects import tick_status_effects
+from services.serializers.character_serializer import get_character_inventory_data
 
 
 def _inventory_with_test_pack():
@@ -276,6 +278,55 @@ class BackendToolExecutorTestCase(unittest.TestCase):
             profile["scaling"]["contributions"]["strength"],
         )
 
+    def test_high_quality_high_level_weapon_grants_modest_attribute_bonus(self):
+        attributes = self._ensure_attributes()
+        attributes.dexterity = 12
+        db.session.commit()
+
+        add_weapon = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "duelist_rapier",
+                    "name": "Duelist Rapier",
+                    "description": "A refined, high-level dueling blade.",
+                    "size": "medium",
+                    "volume": 2.0,
+                    "weight": 1.4,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                    "weapon_family": "rapier",
+                    "item_level": 48,
+                    "rarity": "rare",
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(add_weapon["success"], add_weapon)
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "duelist_rapier", "slot": "main_hand"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        effective_stats = get_effective_stats(self.character.id)
+        self.assertTrue(effective_stats["success"], effective_stats)
+        self.assertGreater(
+            effective_stats["attributes"]["dexterity"]["equipment_bonus"],
+            0,
+        )
+
+        profile = execute_equipment_tool(self.character.id, "get_attack_profile", {})
+        self.assertTrue(profile["success"], profile)
+        self.assertGreater(
+            profile["scaling"]["attribute_values"]["dexterity"],
+            12,
+        )
+
     def test_attack_profile_prefers_strength_for_axe_hammer_family(self):
         attributes = self._ensure_attributes()
         attributes.strength = 16
@@ -466,6 +517,265 @@ class BackendToolExecutorTestCase(unittest.TestCase):
         )
         self.assertTrue(preview["success"], preview)
         self.assertGreaterEqual(preview["probabilities"]["zero_damage_percent"], 70.0)
+
+    def test_high_quality_heavy_armor_buffs_constitution_and_blocking(self):
+        defender_attr = self._ensure_attributes_for(self.defender)
+        defender_attr.constitution = 10
+        defender_attr.strength = 10
+        db.session.commit()
+
+        defender_items = [
+            {
+                "item_id": "vanguard_plate",
+                "name": "Vanguard Plate",
+                "description": "Heavy plate forged for veteran frontliners.",
+                "size": "medium",
+                "volume": 4.5,
+                "weight": 7.0,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "armor",
+                "slot_type": "torso_armor",
+                "item_level": 66,
+                "rarity": "epic",
+                "combat_profile": {
+                    "armor_rating": 22,
+                    "block_bonus": 10,
+                    "dodge_bonus": -4,
+                    "armor_class": "heavy",
+                },
+            },
+            {
+                "item_id": "bulwark_shield",
+                "name": "Bulwark Shield",
+                "description": "A reinforced shield with veteran weight behind it.",
+                "size": "medium",
+                "volume": 3.0,
+                "weight": 4.0,
+                "stackable": False,
+                "hand_usage": "one_handed",
+                "item_type": "shield",
+                "item_level": 60,
+                "rarity": "rare",
+                "combat_profile": {
+                    "armor_rating": 14,
+                    "block_bonus": 14,
+                    "block_threshold_bonus": 6,
+                    "armor_class": "heavy",
+                },
+            },
+        ]
+
+        for item in defender_items:
+            added = execute_inventory_tool(
+                self.defender.id,
+                "add_inventory_item",
+                {"item": item, "quantity": 1, "container_id": "test_pack"},
+            )
+            self.assertTrue(added["success"], added)
+
+        equip_armor = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "vanguard_plate", "slot": "torso_armor"},
+        )
+        self.assertTrue(equip_armor["success"], equip_armor)
+        equip_shield = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "bulwark_shield", "slot": "off_hand"},
+        )
+        self.assertTrue(equip_shield["success"], equip_shield)
+
+        effective_stats = get_effective_stats(self.defender.id)
+        self.assertTrue(effective_stats["success"], effective_stats)
+        self.assertGreater(
+            effective_stats["attributes"]["constitution"]["equipment_bonus"],
+            0,
+        )
+
+        defense = execute_equipment_tool(self.defender.id, "get_defense_profile", {})
+        self.assertTrue(defense["success"], defense)
+        self.assertGreater(defense["armor"]["armor_rating_total"], 30)
+        self.assertGreater(defense["scores"]["block_score"], 40)
+
+    def test_attack_profile_softcaps_over_100_effective_attributes_instead_of_hard_clamping(self):
+        attributes = self._ensure_attributes()
+        attributes.dexterity = 100
+        db.session.commit()
+
+        added = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "artifact_rapier",
+                    "name": "Artifact Rapier",
+                    "description": "An overcap dueling blade.",
+                    "size": "medium",
+                    "volume": 2.0,
+                    "weight": 1.4,
+                    "stackable": False,
+                    "hand_usage": "one_handed",
+                    "item_type": "weapon",
+                    "weapon_family": "rapier",
+                    "item_level": 100,
+                    "rarity": "artifact",
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(added["success"], added)
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "artifact_rapier", "slot": "main_hand"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        profile = execute_equipment_tool(self.character.id, "get_attack_profile", {})
+        self.assertTrue(profile["success"], profile)
+        self.assertGreater(profile["scaling"]["attribute_values"]["dexterity"], 100)
+        self.assertGreater(profile["scaling"]["combat_attribute_values"]["dexterity"], 100.0)
+        self.assertLess(profile["scaling"]["combat_attribute_values"]["dexterity"], profile["scaling"]["attribute_values"]["dexterity"])
+        self.assertGreater(profile["scaling"]["contributions"]["dexterity"], 75.0)
+        self.assertGreater(
+            profile["scaling"]["normalized_weighted_attribute_score"],
+            profile["scaling"]["weighted_attribute_score"] - 0.001,
+        )
+
+    def test_defense_profile_uses_softcapped_combat_attributes_above_100(self):
+        defender_attr = self._ensure_attributes_for(self.defender)
+        defender_attr.constitution = 100
+        defender_attr.strength = 100
+        db.session.commit()
+
+        for item in [
+            {
+                "item_id": "artifact_plate",
+                "name": "Artifact Plate",
+                "description": "A plate set that pushes defensive stats over cap.",
+                "size": "medium",
+                "volume": 4.5,
+                "weight": 7.0,
+                "stackable": False,
+                "hand_usage": "none",
+                "item_type": "armor",
+                "slot_type": "torso_armor",
+                "item_level": 100,
+                "rarity": "artifact",
+                "combat_profile": {
+                    "armor_rating": 24,
+                    "block_bonus": 12,
+                    "dodge_bonus": -4,
+                    "armor_class": "heavy",
+                },
+            },
+            {
+                "item_id": "artifact_bulwark",
+                "name": "Artifact Bulwark",
+                "description": "A shield with absurd but controlled scaling.",
+                "size": "medium",
+                "volume": 3.0,
+                "weight": 4.0,
+                "stackable": False,
+                "hand_usage": "one_handed",
+                "item_type": "shield",
+                "item_level": 100,
+                "rarity": "artifact",
+                "combat_profile": {
+                    "armor_rating": 16,
+                    "block_bonus": 16,
+                    "block_threshold_bonus": 6,
+                    "armor_class": "heavy",
+                },
+            },
+        ]:
+            added = execute_inventory_tool(
+                self.defender.id,
+                "add_inventory_item",
+                {"item": item, "quantity": 1, "container_id": "test_pack"},
+            )
+            self.assertTrue(added["success"], added)
+
+        equip_armor = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "artifact_plate", "slot": "torso_armor"},
+        )
+        self.assertTrue(equip_armor["success"], equip_armor)
+        equip_shield = execute_equipment_tool(
+            self.defender.id,
+            "equip_item",
+            {"item_id": "artifact_bulwark", "slot": "off_hand"},
+        )
+        self.assertTrue(equip_shield["success"], equip_shield)
+
+        defense = execute_equipment_tool(self.defender.id, "get_defense_profile", {})
+        self.assertTrue(defense["success"], defense)
+        self.assertGreater(defense["effective_stats"]["attributes"]["constitution"]["effective"], 100)
+        self.assertGreater(defense["combat_attributes"]["constitution"], 100.0)
+        self.assertLess(
+            defense["combat_attributes"]["constitution"],
+            defense["effective_stats"]["attributes"]["constitution"]["effective"],
+        )
+        self.assertGreater(defense["scores"]["block_score"], 100.0)
+
+    def test_normalize_combat_attribute_value_keeps_overcap_benefit_with_diminishing_returns(self):
+        self.assertEqual(100.0, normalize_combat_attribute_value(100))
+        self.assertGreater(normalize_combat_attribute_value(112), 100.0)
+        self.assertLess(normalize_combat_attribute_value(112), 112.0)
+        self.assertGreater(normalize_combat_attribute_value(150), normalize_combat_attribute_value(112))
+
+    def test_inventory_and_equipment_tooltips_show_item_bonuses(self):
+        added = execute_inventory_tool(
+            self.character.id,
+            "add_inventory_item",
+            {
+                "item": {
+                    "item_id": "warden_band",
+                    "name": "Warden Band",
+                    "description": "A protective ring with martial enchantments.",
+                    "size": "tiny",
+                    "volume": 0.1,
+                    "weight": 0.1,
+                    "stackable": False,
+                    "hand_usage": "none",
+                    "item_type": "ring",
+                    "attribute_modifiers": {"constitution": 4},
+                    "skill_modifiers": {"Blocking": 3},
+                    "resource_modifiers": {"hp_max": 12},
+                },
+                "quantity": 1,
+                "container_id": "test_pack",
+            },
+        )
+        self.assertTrue(added["success"], added)
+
+        inventory_data = get_character_inventory_data(self.character.id)
+        inventory_item = next(
+            item
+            for container in inventory_data["containers"]
+            for item in container["items"]
+            if item["item_id"] == "warden_band"
+        )
+        self.assertIn("+4 Constitution", inventory_item["tooltip"])
+        self.assertIn("+12 HP Max", inventory_item["tooltip"])
+        self.assertIn("+3 Blocking", inventory_item["tooltip"])
+
+        equipped = execute_equipment_tool(
+            self.character.id,
+            "equip_item",
+            {"item_id": "warden_band", "slot": "ring_left"},
+        )
+        self.assertTrue(equipped["success"], equipped)
+
+        equipped_inventory_data = get_character_inventory_data(self.character.id)
+        self.assertIn(
+            "+4 Constitution",
+            equipped_inventory_data["equipment_by_slot"]["ring_left"]["title"],
+        )
 
     def test_resource_tools_set_damage_heal_and_life_status(self):
         lowered = execute_resource_tool(
