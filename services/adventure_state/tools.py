@@ -454,6 +454,22 @@ def _resolve_hit_outcome(attack_score: float, dodge_score: float, block_score: f
     }
 
 
+def _scaled_damage_from_hit(raw_damage: int, hit_outcome: dict) -> int:
+    """Scale raw damage by hit quality and keep real hits from collapsing to zero."""
+
+    dealt_damage = int(round(int(raw_damage) * float(hit_outcome.get("damage_multiplier", 0.0) or 0.0)))
+    dealt_damage = max(0, dealt_damage)
+
+    if (
+        int(raw_damage) > 0
+        and float(hit_outcome.get("damage_multiplier", 0.0) or 0.0) > 0.0
+        and str(hit_outcome.get("outcome") or "") in {"partial_hit", "full_hit"}
+    ):
+        dealt_damage = max(1, dealt_damage)
+
+    return dealt_damage
+
+
 def start_combat(campaign_id: int, enemies_json=None):
     """Start a lightweight combat state with initiative, turn order, and enemy list."""
 
@@ -732,8 +748,7 @@ def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id:
             int(attack_profile["damage"]["final_min"]),
             int(attack_profile["damage"]["final_max"]),
         )
-        dealt_damage = int(round(raw_damage * float(hit_outcome["damage_multiplier"])))
-        dealt_damage = max(0, dealt_damage)
+        dealt_damage = _scaled_damage_from_hit(raw_damage, hit_outcome)
         target["hp_current"] = max(0, int(target.get("hp_current", 0)) - dealt_damage)
         if int(target["hp_current"]) <= 0:
             target["status"] = "defeated"
@@ -770,8 +785,7 @@ def resolve_attack(campaign_id: int, attacker_side: str = None, target_enemy_id:
             block_threshold_bonus=float(defense_profile["armor"]["block_threshold_bonus_total"]),
         )
         raw_damage = random.randint(int(attacker.get("damage_min", 8)), int(attacker.get("damage_max", 16)))
-        dealt_damage = int(round(raw_damage * float(hit_outcome["damage_multiplier"])))
-        dealt_damage = max(0, dealt_damage)
+        dealt_damage = _scaled_damage_from_hit(raw_damage, hit_outcome)
 
         if dealt_damage > 0:
             hp_change = remove_resource(character.id, "hp", dealt_damage).to_dict()

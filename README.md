@@ -62,9 +62,9 @@ That means the RPG acts both as:
 - a pressure test for persistent AI-state interaction
 - an extension that proves the engine can support creative generation, not only strict retrieval and validation
 
-The current system is RAG-inspired, but it is not a classic vector-search RAG system yet. Instead of retrieving documents from embeddings, the backend injects structured state and provides tool calls that let the AI ask for, update, validate, and generate state through application services.
+The current system now combines structured backend state with a first real lore-retrieval layer. Persistent gameplay state still comes from backend services and tool execution, while world knowledge can be retrieved from a dedicated lore index instead of being improvised by narration alone.
 
-Future versions could add vector search, local document retrieval, or company-internal knowledge bases on top of the same tool-based architecture.
+Future versions can expand this into broader vector search, local document retrieval, or company-internal knowledge bases on top of the same tool-based architecture.
 
 The tool-calling layer also makes the system adaptable to local or private LLMs. In a company setting, the same principle could be used with an internal model so sensitive data stays inside the organization while the AI still interacts with backend systems through validated tools.
 
@@ -80,6 +80,7 @@ The tool-calling layer also makes the system adaptable to local or private LLMs.
 - OpenAI-compatible chat completions
 - OpenAI API
 - DeepSeek API
+- Qdrant
 - HTML / CSS / JavaScript
 - python-dotenv
 - Werkzeug password hashing
@@ -133,11 +134,14 @@ The AI must not directly modify game state. Every state change must go through v
 - services/equipment/
 - services/inventory/
 - services/leveling/
+- services/lore/
+- services/merchants/
 - services/prompt_builder/
 - services/serializers/
 - services/skills/
 - services/story/
 - services/tools/
+- services/trainers/
 
 ### Data
 
@@ -256,6 +260,37 @@ Current limitations:
 - Recent story history is injected into each LLM turn
 - Campaign continuity is preserved across messages
 
+### Lore Retrieval / RAG
+
+Backend-controlled lore retrieval now exists for factual world knowledge.
+
+Implemented:
+
+- Markdown lore source structure under `lore/`
+  - `lore/regions/`
+  - `lore/subregions/`
+  - `lore/locations/`
+- YAML frontmatter metadata for region, subregion, location, and lore-scoping fields
+- Semantic markdown chunking by headings before vector ingestion
+- Qdrant-backed embedding retrieval for lore matches
+- `get_lore_context` tool for factual questions about:
+  - regions
+  - subregions
+  - cities / villages / capitals
+  - peoples / cultures
+  - distant places
+  - history-style world facts
+- Prompt rules that push the model toward lore retrieval instead of improvising factual world data
+- Capital-query supplementation that can lift known capital locations directly from lore markdown when the raw vector matches are too generic
+- Qdrant payload-index creation for common lore filters
+- Safe fallback when a Qdrant payload filter index is missing, so lore queries do not crash the app
+
+Current limitations:
+
+- Lore depth is still uneven; many entries still contain starter text or TODO sections
+- NPC naming/presentation in scene narration still needs polish so the chat does not fall back to placeholders like generic role labels or ids
+- Retrieval currently focuses on factual lore context, not on every future writing-style/template use case
+
 ### Inventory System
 
 Character-based container inventory stored in `inventory_json`.
@@ -352,6 +387,11 @@ Combat-oriented equipment foundation now implemented:
   - clear dodge win => 0 damage
   - clear block win => 0 damage
 - Attack outcome preview for attacker vs defender probability checks, including strong level-gap behavior
+
+Recent combat reliability fixes:
+
+- Enemy archetype inference now falls back from enemy names and lightweight payload hints, so generated enemies such as `Kelleratte` no longer silently degrade into humanoid/bandit fallback stats
+- Partial hits with positive damage multipliers now deal at least 1 damage instead of rounding down to 0 in edge cases
 
 ### Resource System
 
@@ -760,6 +800,7 @@ Working:
 - Merchant / trade MVP with backend-generated stock, deterministic pricing, services, and buy/sell validation
 - Trainer / teacher MVP with role-based lesson discovery, scaling teaching caps, and custom-skill support
 - Lightweight NPC persistence rules for quest anchors, merchants, trainers, and expiring flavor NPCs
+- Lore retrieval / RAG MVP with markdown lore, Qdrant sync, and gameplay tool access
 - Quest service reward redemption for training, meals, and lodging
 - Multi-system tool pipeline
 - UI state refresh after game turns
@@ -767,7 +808,7 @@ Working:
 
 Known limitations:
 
-- No vector-based RAG or external knowledge retrieval yet
+- Lore retrieval exists, but authored lore coverage is still incomplete and uneven across the world
 - No advanced combat AI/encounter scripting layer yet beyond the current combat-turn MVP
 - No full custom-skill balancing layer yet (metadata and domain safety exist, but balancing policies are still being tuned)
 - No level-up choice or skill point spending yet
@@ -779,6 +820,7 @@ Known limitations:
 - Travel time is applied by backend tools, but broader schedule systems such as opening hours and NPC routines are still future work
 - Reward economy values are backend-controlled, but not final-balanced yet
 - Tool calling works, but retry and failure handling are still MVP-level
+- Scene/NPC naming and chat-output presentation still need a polish pass so the narration does not over-explain or expose generic placeholders
 
 ---
 
@@ -798,6 +840,7 @@ Mid-term:
 - Organic region/subregion polygons and generated-place persistence
 - Shop opening hours, trainer schedules, rest recovery, and status-effect ticking tied to campaign time
 - Better tool retry and failure handling
+- Chat-output and NPC-naming polish
 
 Long-term:
 
@@ -844,6 +887,12 @@ DEEPSEEK_API_KEY=your_deepseek_key
 
 OPENAI_MODEL=gpt-4.1-mini
 DEEPSEEK_MODEL=deepseek-chat
+
+QDRANT_URL=your_qdrant_url
+QDRANT_API_KEY=your_qdrant_api_key
+QDRANT_LORE_COLLECTION=avalion_lore
+LORE_EMBEDDING_MODEL=text-embedding-3-small
+LORE_EMBEDDING_DIMENSIONS=1536
 ```
 
 ### 5. Start the app
@@ -862,6 +911,12 @@ Optional seed script:
 
 ```bash
 python seed_data.py
+```
+
+Optional lore sync after editing or generating markdown lore:
+
+```bash
+python scripts/sync_lore_to_qdrant.py
 ```
 
 ### 6. Run backend regression tests
@@ -883,6 +938,14 @@ Required environment variables:
 - DEEPSEEK_API_KEY
 - OPENAI_MODEL
 - DEEPSEEK_MODEL
+- QDRANT_URL
+- QDRANT_API_KEY
+
+Optional lore settings:
+
+- QDRANT_LORE_COLLECTION
+- LORE_EMBEDDING_MODEL
+- LORE_EMBEDDING_DIMENSIONS
 
 The default provider in the game UI is DeepSeek when available.
 

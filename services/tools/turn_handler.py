@@ -397,6 +397,7 @@ def run_game_turn(
     resource_tool_definitions,
     status_effect_tool_definitions,
     leveling_tool_definitions,
+    lore_tool_definitions,
     attribute_tool_definitions,
     skill_tool_definitions,
 
@@ -409,6 +410,7 @@ def run_game_turn(
     execute_resource_tool,
     execute_status_effect_tool,
     execute_leveling_tool,
+    execute_lore_tool,
     execute_attribute_tool,
     execute_skill_tool,
 
@@ -432,6 +434,7 @@ def run_game_turn(
         + resource_tool_definitions
         + status_effect_tool_definitions
         + leveling_tool_definitions
+        + lore_tool_definitions
         + attribute_tool_definitions
         + skill_tool_definitions
     )
@@ -472,6 +475,7 @@ def run_game_turn(
             resource_tool_definitions,
             status_effect_tool_definitions,
             leveling_tool_definitions,
+            lore_tool_definitions,
             attribute_tool_definitions,
             skill_tool_definitions,
         )
@@ -594,6 +598,7 @@ def run_game_turn(
                     resource_tool_definitions=resource_tool_definitions,
                     status_effect_tool_definitions=status_effect_tool_definitions,
                     leveling_tool_definitions=leveling_tool_definitions,
+                    lore_tool_definitions=lore_tool_definitions,
                     attribute_tool_definitions=attribute_tool_definitions,
                     skill_tool_definitions=skill_tool_definitions,
                     execute_state_tool=execute_state_tool,
@@ -605,6 +610,7 @@ def run_game_turn(
                     execute_resource_tool=execute_resource_tool,
                     execute_status_effect_tool=execute_status_effect_tool,
                     execute_leveling_tool=execute_leveling_tool,
+                    execute_lore_tool=execute_lore_tool,
                     execute_attribute_tool=execute_attribute_tool,
                     execute_skill_tool=execute_skill_tool,
                 )

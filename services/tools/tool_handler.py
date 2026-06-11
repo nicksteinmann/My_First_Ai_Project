@@ -35,6 +35,9 @@ def _normalize_dsml_text(text):
     normalized = normalized.replace("<| DSML|", "<|DSML|")
     normalized = normalized.replace("| invoke", "|invoke")
     normalized = normalized.replace("| parameter", "|parameter")
+    normalized = normalized.replace("</|DSML|invoke>", "<|DSML|/invoke>")
+    normalized = normalized.replace("</|DSML|parameter>", "<|DSML|/parameter>")
+    normalized = normalized.replace("</|DSML|function_calls>", "<|DSML|/function_calls>")
     normalized = normalized.replace("| /invoke", "|/invoke")
     normalized = normalized.replace("| /parameter", "|/parameter")
     normalized = normalized.replace("| /function_calls", "|/function_calls")
@@ -220,6 +223,7 @@ def get_valid_tool_names(
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
     leveling_tool_definitions=None,
+    lore_tool_definitions=None,
     attribute_tool_definitions=None,
     skill_tool_definitions=None,
 ):
@@ -231,6 +235,7 @@ def get_valid_tool_names(
     resource_tool_definitions = resource_tool_definitions or []
     status_effect_tool_definitions = status_effect_tool_definitions or []
     leveling_tool_definitions = leveling_tool_definitions or []
+    lore_tool_definitions = lore_tool_definitions or []
     attribute_tool_definitions = attribute_tool_definitions or []
     skill_tool_definitions = skill_tool_definitions or []
 
@@ -244,6 +249,7 @@ def get_valid_tool_names(
         *(t["function"]["name"] for t in resource_tool_definitions),
         *(t["function"]["name"] for t in status_effect_tool_definitions),
         *(t["function"]["name"] for t in leveling_tool_definitions),
+        *(t["function"]["name"] for t in lore_tool_definitions),
         *(t["function"]["name"] for t in attribute_tool_definitions),
         *(t["function"]["name"] for t in skill_tool_definitions),
         "change_location",
@@ -274,6 +280,7 @@ def resolve_tool_calls(
     resource_tool_definitions=None,
     status_effect_tool_definitions=None,
     leveling_tool_definitions=None,
+    lore_tool_definitions=None,
     attribute_tool_definitions=None,
     skill_tool_definitions=None,
 ):
@@ -304,6 +311,7 @@ def resolve_tool_calls(
                 resource_tool_definitions,
                 status_effect_tool_definitions,
                 leveling_tool_definitions,
+                lore_tool_definitions,
                 attribute_tool_definitions,
                 skill_tool_definitions,
             )
@@ -348,6 +356,7 @@ def execute_normalized_tool(
     resource_tool_definitions,
     status_effect_tool_definitions,
     leveling_tool_definitions,
+    lore_tool_definitions,
     attribute_tool_definitions,
     skill_tool_definitions,
     execute_state_tool,
@@ -359,6 +368,7 @@ def execute_normalized_tool(
     execute_resource_tool,
     execute_status_effect_tool,
     execute_leveling_tool,
+    execute_lore_tool,
     execute_attribute_tool,
     execute_skill_tool,
 ):
@@ -373,6 +383,7 @@ def execute_normalized_tool(
     resource_tool_names = [t["function"]["name"] for t in resource_tool_definitions]
     status_effect_tool_names = [t["function"]["name"] for t in status_effect_tool_definitions]
     leveling_tool_names = [t["function"]["name"] for t in leveling_tool_definitions]
+    lore_tool_names = [t["function"]["name"] for t in lore_tool_definitions]
     attribute_tool_names = [t["function"]["name"] for t in attribute_tool_definitions]
     skill_tool_names = [t["function"]["name"] for t in skill_tool_definitions]
 
@@ -437,6 +448,13 @@ def execute_normalized_tool(
             character_id=character_id,
             tool_name=normalized_tool_name,
             arguments=normalized_tool_args
+        )
+
+    if normalized_tool_name in lore_tool_names and execute_lore_tool:
+        return execute_lore_tool(
+            campaign_id=campaign_id,
+            tool_name=normalized_tool_name,
+            arguments=normalized_tool_args,
         )
 
     if normalized_tool_name in attribute_tool_names and execute_attribute_tool:

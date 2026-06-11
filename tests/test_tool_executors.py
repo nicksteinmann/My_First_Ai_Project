@@ -4,6 +4,8 @@ import unittest
 from flask import Flask
 
 from models import Character, CharacterAttribute, User, db
+from services.adventure_state.enemy_archetypes import build_enemy_from_payload
+from services.adventure_state.tools import _scaled_damage_from_hit
 from services.attributes.tools import execute_attribute_tool
 from services.currency.tools import execute_currency_tool
 from services.equipment.tools import execute_equipment_tool
@@ -776,6 +778,31 @@ class BackendToolExecutorTestCase(unittest.TestCase):
             "+4 Constitution",
             equipped_inventory_data["equipment_by_slot"]["ring_left"]["title"],
         )
+
+    def test_build_enemy_from_payload_infers_cellar_rat_from_name(self):
+        enemy = build_enemy_from_payload(
+            {
+                "name": "Kelleratte",
+            },
+            index=1,
+        )
+
+        self.assertEqual("cellar_rat", enemy["archetype_id"])
+        self.assertEqual("animal", enemy["category"])
+        self.assertLessEqual(enemy["hp_max"], 9)
+        self.assertEqual([], enemy["equipment"])
+        self.assertLessEqual(enemy["block_score"], 3.0)
+
+    def test_partial_hits_with_positive_multiplier_do_minimum_one_damage(self):
+        dealt_damage = _scaled_damage_from_hit(
+            1,
+            {
+                "outcome": "partial_hit",
+                "damage_multiplier": 0.2,
+            },
+        )
+
+        self.assertEqual(1, dealt_damage)
 
     def test_resource_tools_set_damage_heal_and_life_status(self):
         lowered = execute_resource_tool(
