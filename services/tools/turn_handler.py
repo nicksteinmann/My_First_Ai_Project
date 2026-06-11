@@ -381,6 +381,357 @@ def _contains_fake_tool_syntax(text):
     )
 
 
+def _validate_final_narration(
+    content,
+    successful_tool_names,
+    failed_tool_results,
+    turn_id=None,
+    round_index=None,
+    final_mode=False,
+):
+    """Return whether final narration is usable plus content or fallback text."""
+
+    if not content.strip():
+        return False, "The actions are resolved, but the narration could not be generated."
+
+    if _is_non_narrative_placeholder(content):
+        debug_tool_event(
+            "final narration contained placeholder" if final_mode else "non-narrative placeholder rejected",
+            {
+                "turn_id": turn_id,
+                "round_index": round_index,
+                "content": content,
+            },
+        )
+        return False, "Der Spielzustand wurde nicht verändert. Was tust du als Nächstes?"
+
+    if _contains_fake_tool_syntax(content):
+        debug_tool_event(
+            "final narration contained fake tool syntax",
+            {
+                "turn_id": turn_id,
+                "round_index": round_index,
+                "content": content,
+            },
+        )
+        return False, "Die ausgeführten Aktionen sind verarbeitet. Was tust du als Nächstes?"
+
+    policy_violations = _find_narration_policy_violations(
+        content,
+        successful_tool_names,
+    )
+    if policy_violations:
+        debug_tool_event(
+            "final narration policy rejected" if final_mode else "narration policy rejected",
+            {
+                "turn_id": turn_id,
+                "round_index": round_index,
+                "violations": policy_violations,
+                "content": content,
+            },
+        )
+        return False, "Der genaue Lohn ist noch nicht backendseitig festgelegt. Was tust du als Nächstes?"
+
+    state_claims = _find_state_claims(content)
+    unsupported_claims = _unsupported_state_claims(
+        state_claims,
+        successful_tool_names,
+    )
+    if unsupported_claims:
+        debug_tool_event(
+            "final narration rejected without tool support"
+            if final_mode
+            else "state claim rejected without tool support",
+            {
+                "turn_id": turn_id,
+                "round_index": round_index,
+                "claims": unsupported_claims,
+                "successful_tools": successful_tool_names,
+                "content": content,
+            },
+        )
+        return False, "Die Situation ist noch nicht backendseitig abgeschlossen. Was tust du als Nächstes?"
+
+    return True, content
+
+
+def _build_streaming_narration_messages(messages):
+    """Return history plus a final plain-text narration instruction."""
+
+    return messages + [{
+        "role": "system",
+        "content": (
+            "No more tool calls are allowed for this turn. "
+            "Write the final player-visible answer now as plain narrative text only. "
+            "Respond in the user's language. Keep normal replies concise, usually about 3-5 sentences. "
+            "Do not restate UI-visible stats, inventory, currency, equipment, quests, or status unless directly relevant. "
+            "Do not output tool syntax, JSON, XML, DSML, or option menus."
+        ),
+    }]
+
+
+def _iter_stream_text(stream_response):
+    """Yield text deltas from a streaming chat completion response."""
+
+    for chunk in stream_response:
+        for choice in getattr(chunk, "choices", []) or []:
+            delta = getattr(choice, "delta", None)
+            text = getattr(delta, "content", None) if delta is not None else None
+            if text:
+                yield text
+
+
+def run_game_turn_stream(
+    client,
+    model,
+    messages,
+    campaign_id,
+    active_character,
+
+    state_tool_definitions,
+    inventory_tool_definitions,
+    currency_tool_definitions,
+    merchant_tool_definitions,
+    trainer_tool_definitions,
+    equipment_tool_definitions,
+    resource_tool_definitions,
+    status_effect_tool_definitions,
+    leveling_tool_definitions,
+    lore_tool_definitions,
+    attribute_tool_definitions,
+    skill_tool_definitions,
+
+    execute_state_tool,
+    execute_inventory_tool,
+    execute_currency_tool,
+    execute_merchant_tool,
+    execute_trainer_tool,
+    execute_equipment_tool,
+    execute_resource_tool,
+    execute_status_effect_tool,
+    execute_leveling_tool,
+    execute_lore_tool,
+    execute_attribute_tool,
+    execute_skill_tool,
+
+    resolve_tool_calls,
+    parse_tool_call_payload,
+    normalize_tool_call,
+    execute_normalized_tool,
+
+    max_tool_rounds=5,
+    turn_id=None,
+):
+    """Run one gameplay turn and yield only the final narration text stream."""
+
+    all_tool_definitions = (
+        state_tool_definitions
+        + inventory_tool_definitions
+        + currency_tool_definitions
+        + merchant_tool_definitions
+        + trainer_tool_definitions
+        + equipment_tool_definitions
+        + resource_tool_definitions
+        + status_effect_tool_definitions
+        + leveling_tool_definitions
+        + lore_tool_definitions
+        + attribute_tool_definitions
+        + skill_tool_definitions
+    )
+    debug_tool_event("game turn started", {
+        "turn_id": turn_id,
+        "campaign_id": campaign_id,
+        "character_id": active_character["id"],
+        "tool_count": len(all_tool_definitions),
+        "max_tool_rounds": max_tool_rounds,
+        "stream_final_narration": True,
+    })
+
+    successful_tool_names = []
+    failed_tool_results = []
+
+    for round_index in range(max_tool_rounds):
+        debug_tool_event("tool round started", {
+            "turn_id": turn_id,
+            "round_index": round_index + 1,
+        })
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=all_tool_definitions,
+        )
+        message = response.choices[0].message
+
+        tool_calls = resolve_tool_calls(
+            message,
+            state_tool_definitions,
+            inventory_tool_definitions,
+            currency_tool_definitions,
+            merchant_tool_definitions,
+            trainer_tool_definitions,
+            equipment_tool_definitions,
+            resource_tool_definitions,
+            status_effect_tool_definitions,
+            leveling_tool_definitions,
+            lore_tool_definitions,
+            attribute_tool_definitions,
+            skill_tool_definitions,
+        )
+
+        if not tool_calls:
+            content = message.content or ""
+            is_valid, fallback_text = _validate_final_narration(
+                content,
+                successful_tool_names,
+                failed_tool_results,
+                turn_id=turn_id,
+                round_index=round_index + 1,
+            )
+            if not is_valid:
+                yield fallback_text
+                return
+
+            stream_response = client.chat.completions.create(
+                model=model,
+                messages=_build_streaming_narration_messages(messages),
+                stream=True,
+            )
+            streamed_parts = []
+            for text in _iter_stream_text(stream_response):
+                streamed_parts.append(text)
+                yield text
+            streamed_text = "".join(streamed_parts)
+            is_stream_valid, final_text = _validate_final_narration(
+                streamed_text,
+                successful_tool_names,
+                failed_tool_results,
+                turn_id=turn_id,
+                round_index=round_index + 1,
+                final_mode=True,
+            )
+            if not is_stream_valid:
+                yield final_text
+            return
+
+        messages.append(message)
+        tool_result_messages = []
+
+        for index, tool_call in enumerate(tool_calls):
+            tool_name, tool_args, tool_call_id, raw_arguments = parse_tool_call_payload(
+                tool_call,
+                index=index,
+            )
+
+            normalized_tool_name, normalized_tool_args = normalize_tool_call(
+                tool_name,
+                tool_args,
+                active_character,
+            )
+
+            debug_tool_event("executing tool", {
+                "turn_id": turn_id,
+                "round_index": round_index + 1,
+                "tool_name": normalized_tool_name,
+                "arguments": normalized_tool_args,
+            })
+
+            if _should_block_direct_reward_tool(
+                normalized_tool_name,
+                messages,
+                successful_tool_names,
+            ):
+                debug_tool_event("direct reward tool blocked", {
+                    "turn_id": turn_id,
+                    "round_index": round_index + 1,
+                    "tool_name": normalized_tool_name,
+                    "arguments": normalized_tool_args,
+                })
+                tool_result = _blocked_direct_reward_result(normalized_tool_name)
+            else:
+                tool_result = execute_normalized_tool(
+                    normalized_tool_name=normalized_tool_name,
+                    normalized_tool_args=normalized_tool_args,
+                    campaign_id=campaign_id,
+                    character_id=active_character["id"],
+                    state_tool_definitions=state_tool_definitions,
+                    inventory_tool_definitions=inventory_tool_definitions,
+                    currency_tool_definitions=currency_tool_definitions,
+                    merchant_tool_definitions=merchant_tool_definitions,
+                    trainer_tool_definitions=trainer_tool_definitions,
+                    equipment_tool_definitions=equipment_tool_definitions,
+                    resource_tool_definitions=resource_tool_definitions,
+                    status_effect_tool_definitions=status_effect_tool_definitions,
+                    leveling_tool_definitions=leveling_tool_definitions,
+                    lore_tool_definitions=lore_tool_definitions,
+                    attribute_tool_definitions=attribute_tool_definitions,
+                    skill_tool_definitions=skill_tool_definitions,
+                    execute_state_tool=execute_state_tool,
+                    execute_inventory_tool=execute_inventory_tool,
+                    execute_currency_tool=execute_currency_tool,
+                    execute_merchant_tool=execute_merchant_tool,
+                    execute_trainer_tool=execute_trainer_tool,
+                    execute_equipment_tool=execute_equipment_tool,
+                    execute_resource_tool=execute_resource_tool,
+                    execute_status_effect_tool=execute_status_effect_tool,
+                    execute_leveling_tool=execute_leveling_tool,
+                    execute_lore_tool=execute_lore_tool,
+                    execute_attribute_tool=execute_attribute_tool,
+                    execute_skill_tool=execute_skill_tool,
+                )
+
+            if isinstance(tool_result, dict) and turn_id:
+                tool_result.setdefault("turn_id", turn_id)
+
+            debug_tool_event("tool result", {
+                "turn_id": turn_id,
+                "round_index": round_index + 1,
+                "tool_name": normalized_tool_name,
+                "result": tool_result,
+            })
+
+            if isinstance(tool_result, dict) and tool_result.get("success") is True:
+                successful_tool_names.append(normalized_tool_name)
+            else:
+                failed_tool_results.append({
+                    "tool_name": normalized_tool_name,
+                    "message": (
+                        tool_result.get("message")
+                        if isinstance(tool_result, dict)
+                        else "Tool did not return a success payload."
+                    ),
+                    "result": tool_result,
+                })
+
+            tool_result_messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": json.dumps(tool_result, ensure_ascii=False)
+            })
+
+        messages.extend(tool_result_messages)
+
+    stream_response = client.chat.completions.create(
+        model=model,
+        messages=_build_streaming_narration_messages(messages),
+        stream=True,
+    )
+    streamed_parts = []
+    for text in _iter_stream_text(stream_response):
+        streamed_parts.append(text)
+        yield text
+    streamed_text = "".join(streamed_parts)
+    is_valid, final_text = _validate_final_narration(
+        streamed_text,
+        successful_tool_names,
+        failed_tool_results,
+        turn_id=turn_id,
+        final_mode=True,
+    )
+    if not is_valid:
+        yield final_text
+
+
 def run_game_turn(
     client,
     model,
@@ -544,7 +895,14 @@ def run_game_turn(
                 })
                 continue
 
-            return content
+            _, final_text = _validate_final_narration(
+                content,
+                successful_tool_names,
+                failed_tool_results,
+                turn_id=turn_id,
+                round_index=round_index + 1,
+            )
+            return final_text
 
         # 3. Execute tools and feed results back into the conversation.
         messages.append(message)
@@ -663,6 +1021,15 @@ def run_game_turn(
     )
 
     content = response.choices[0].message.content or ""
+    _, final_text = _validate_final_narration(
+        content,
+        successful_tool_names,
+        failed_tool_results,
+        turn_id=turn_id,
+        final_mode=True,
+    )
+    return final_text
+
     if content.strip():
         if _is_non_narrative_placeholder(content):
             debug_tool_event("final narration contained placeholder", {

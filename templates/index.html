@@ -745,11 +745,12 @@
         const originalButtonText = sendBtn.textContent;
         sendBtn.textContent = "Sending...";
 
-        chat.innerHTML += `<div class="chat-message user"><strong>You:</strong> ${text}</div>`;
+        chat.innerHTML += `<div class="chat-message user"><strong>You:</strong> ${escapeHtml(text)}</div>`;
+        chat.innerHTML += `<div class="chat-message ai"><strong>${escapeHtml(provider)}:</strong> <span class="streaming-response"></span></div>`;
         chat.scrollTop = chat.scrollHeight;
 
         try {
-            const res = await fetch("/api/game", {
+            const res = await fetch("/api/game/stream", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
@@ -758,19 +759,66 @@
                 })
             });
 
-            const data = await res.json();
-
-            if (data.character) {
-                updateAdventureState(data.character);
-            }
-
             if (!res.ok) {
-                chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${data.error || "Unknown error"}${data.details ? " - " + data.details : ""}</div>`;
+                const data = await res.json();
+                chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${escapeHtml(data.error || "Unknown error")}${data.details ? " - " + escapeHtml(data.details) : ""}</div>`;
                 chat.scrollTop = chat.scrollHeight;
                 return;
             }
 
-            chat.innerHTML += `<div class="chat-message ai"><strong>${data.provider}:</strong> ${data.response}</div>`;
+            const streamingResponseEl = chat.querySelector(".chat-message.ai:last-child .streaming-response");
+            const reader = res.body?.getReader();
+            const decoder = new TextDecoder();
+            let pending = "";
+
+            if (!reader || !streamingResponseEl) {
+                throw new Error("Streaming not supported.");
+            }
+
+            while (true) {
+                const {value, done} = await reader.read();
+                if (done) break;
+
+                pending += decoder.decode(value, {stream: true});
+                const lines = pending.split("\n");
+                pending = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    const payload = JSON.parse(line);
+                    if (payload.type === "chunk") {
+                        streamingResponseEl.textContent += payload.text || "";
+                        chat.scrollTop = chat.scrollHeight;
+                        continue;
+                    }
+
+                    if (payload.type === "done") {
+                        if (payload.character) {
+                            updateAdventureState(payload.character);
+                        }
+                        continue;
+                    }
+
+                    if (payload.type === "error") {
+                        chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${escapeHtml(payload.error || "Unknown error")}${payload.details ? " - " + escapeHtml(payload.details) : ""}</div>`;
+                        chat.scrollTop = chat.scrollHeight;
+                        return;
+                    }
+                }
+            }
+
+            if (pending.trim()) {
+                const payload = JSON.parse(pending);
+                if (payload.type === "done" && payload.character) {
+                    updateAdventureState(payload.character);
+                } else if (payload.type === "error") {
+                    chat.innerHTML += `<div class="chat-message system"><strong>System:</strong> ${escapeHtml(payload.error || "Unknown error")}${payload.details ? " - " + escapeHtml(payload.details) : ""}</div>`;
+                    chat.scrollTop = chat.scrollHeight;
+                    return;
+                }
+            }
+
             input.value = "";
             chat.scrollTop = chat.scrollHeight;
         } catch (err) {
