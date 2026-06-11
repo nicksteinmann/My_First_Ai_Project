@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from data.character_presets import RACES
+
 
 QUEST_RELATED_TERMS = (
     "quest",
@@ -19,6 +21,37 @@ QUEST_RELATED_TERMS = (
     "collect reward",
 )
 
+LORE_RELATED_TERMS = (
+    "region",
+    "subregion",
+    "stadt",
+    "city",
+    "dorf",
+    "village",
+    "hauptstadt",
+    "capital",
+    "gegend",
+    "area",
+    "ort",
+    "place",
+    "volk",
+    "race",
+    "elves",
+    "elfen",
+    "zwerge",
+    "dwarves",
+    "menschen",
+    "humans",
+    "orks",
+    "orcs",
+    "lore",
+    "geschichte",
+    "history",
+    "weiß ich",
+    "weiss ich",
+    "know about",
+)
+
 
 def _normalize_text(value) -> str:
     """Return a normalized lowercase string for simple prompt heuristics."""
@@ -31,6 +64,13 @@ def _is_quest_related_input(user_input: str) -> bool:
 
     normalized = _normalize_text(user_input)
     return any(term in normalized for term in QUEST_RELATED_TERMS)
+
+
+def _is_lore_related_input(user_input: str) -> bool:
+    """Return whether the latest user input is likely a lore/world knowledge question."""
+
+    normalized = _normalize_text(user_input)
+    return any(term in normalized for term in LORE_RELATED_TERMS)
 
 
 def _summarize_objectives(objectives) -> list[str]:
@@ -180,6 +220,7 @@ def build_game_system_prompt(active_character, latest_user_input: str = ""):
 
     quest_context_block = _build_visible_quest_context(active_character, latest_user_input)
     current_state = active_character.get("current_state", {}) or {}
+    lore_is_relevant = _is_lore_related_input(latest_user_input)
     location_context = current_state.get("location_context", {}) or {}
     coordinate_x = location_context.get("coordinate_x")
     coordinate_y = location_context.get("coordinate_y")
@@ -188,6 +229,7 @@ def build_game_system_prompt(active_character, latest_user_input: str = ""):
         if coordinate_x is not None and coordinate_y is not None
         else "Unknown"
     )
+    playable_races = ", ".join(RACES.keys())
 
     return f"""
 You are the Game Master of a fantasy text-based RPG.
@@ -196,6 +238,7 @@ Active Character:
 - Name: {active_character['name']}
 - Class: {active_character['class_name']}
 - Race: {active_character['race']}
+- Official Playable Races In This Campaign Ruleset: {playable_races}
 - Level: {active_character['level']}
 - XP: {active_character.get('level_progression', {}).get('xp_into_level', 0)} / {active_character.get('level_progression', {}).get('xp_needed_this_level', 0)} toward next level
 - Renown (Ruf): {active_character.get('renown_label', 'Unknown')} - {active_character.get('renown_summary', 'Most people have never heard of this character.')}
@@ -219,6 +262,7 @@ Active Character:
 - Status Effects: {active_character.get('status_effect_summary', 'None')}
 - Nearby Merchants: {", ".join(f"{merchant.get('name')} (NPC #{merchant.get('merchant_npc_id')}, {merchant.get('merchant_type')})" for merchant in current_state.get('nearby_merchants', [])) or "None"}
 - Nearby Trainers: {", ".join(f"{trainer.get('name')} (NPC #{trainer.get('trainer_npc_id')}, tier {trainer.get('trainer_tier')})" for trainer in current_state.get('nearby_trainers', [])) or "None"}
+- Lore Retrieval Hint: {"Lore/world knowledge question detected. Use get_lore_context before answering factual questions about places, peoples, regions, capitals, history, or distant locations." if lore_is_relevant else "Use get_lore_context whenever the player asks factual world knowledge that is not already directly given by the current scene state."}
 
 {quest_context_block}
 
@@ -228,6 +272,9 @@ Rules:
 - Respond in the same language as the user.
 - You are the narrator. Do not break immersion.
 - Do not invent results that should be handled by the backend.
+- Do not invent factual world lore when get_lore_context can answer it.
+- Do not mention races, peoples, capitals, kingdoms, cities, or factions that are not established by the current scene state, the official campaign ruleset, or a fresh lore tool result from this same turn.
+- If the lore tool does not support a requested race or people, say that no confirmed lore entry is available instead of filling gaps with invented world facts.
 - Do not mix quest facts between unrelated NPCs or unrelated places.
 - When an NPC or place matches a relevant stored quest, keep the quest facts consistent with the stored quest context.
 - When the user is not talking about a quest and the current place is not quest-relevant, do not inject unrelated quest details into the scene.
@@ -237,6 +284,7 @@ Tool Usage:
 - Only use the provided tools.
 - Never invent tool names.
 - Only call tools when a real state change happens.
+- get_lore_context is also valid for factual world-knowledge retrieval even when it does not change state.
 - If a tool is required, you MUST call it.
 - If several independent state changes are required, call all required tools in the same response when possible.
 - If no valid tool exists, the action must NOT be executed.
@@ -251,6 +299,8 @@ State Changes:
 - Use state tools for location, time, or quest updates.
     - When the player moves into a distinct room, shop, cellar, street, camp, or other place, call update_location in the same response as the arrival.
     - Use update_location for local movement inside the current map position, such as rooms, shops, cellars, streets, tavern tables, market stalls, and nearby interiors.
+    - Before answering factual questions about regions, subregions, cities, villages, capitals, peoples, history, or distant world locations, call get_lore_context unless the answer is already directly present in the current scene state or a fresh lore tool result from this same turn.
+    - If get_lore_context returns no detailed city entry, fall back to broader subregion or region lore instead of inventing precise facts.
     - Before claiming what a merchant sells, which fixed merchants are present, or what a merchant charges, call get_merchants_at_location or get_merchant_inventory.
     - Use buy_item_from_merchant and sell_item_to_merchant for trade. Do not invent prices, merchant stock, or item availability in narration.
     - Use buy_merchant_service for backend-priced inn or merchant services such as meals and beds. Do not narrate paid lodging or a paid inn meal as completed unless that tool succeeds.

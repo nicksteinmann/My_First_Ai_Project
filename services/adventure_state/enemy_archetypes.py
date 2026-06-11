@@ -855,6 +855,44 @@ ARCHETYPE_ALIASES = {
 }
 
 
+def _infer_archetype_id_from_payload(payload: dict) -> str:
+    """Infer an archetype id from explicit ids first, then enemy naming hints."""
+
+    payload = payload or {}
+    explicit_candidates = (
+        payload.get("archetype_id"),
+        payload.get("enemy_type"),
+        payload.get("type"),
+        payload.get("kind"),
+    )
+    for candidate in explicit_candidates:
+        raw_id = str(candidate or "").strip().lower()
+        if not raw_id:
+            continue
+        archetype_id = ARCHETYPE_ALIASES.get(raw_id, raw_id)
+        if archetype_id in ENEMY_ARCHETYPES:
+            return archetype_id
+
+    text_candidates = " ".join(
+        str(payload.get(key) or "").strip().lower()
+        for key in ("name", "display_name", "description")
+    )
+    keyword_aliases = (
+        (("kelleratte", "cellar rat", "cellar_rat", "ratte im keller"), "cellar_rat"),
+        (("flussratte", "river rat", "river_rat"), "cellar_rat"),
+        (("ratte", "rat"), "rat_small"),
+        (("goblin",), "goblin_skirmisher"),
+        (("ork", "orc"), "orc_scout"),
+        (("bandit", "räuber", "raeuber", "thug"), "thug_bandit"),
+        (("wache", "guard"), "guard_standard"),
+    )
+    for keywords, alias in keyword_aliases:
+        if any(keyword in text_candidates for keyword in keywords):
+            return ARCHETYPE_ALIASES.get(alias, alias)
+
+    return "thug_bandit"
+
+
 def _clamp_level(archetype: dict, requested_level) -> int:
     min_level = int(archetype["level_min"])
     max_level = int(archetype["level_max"])
@@ -894,8 +932,7 @@ def _as_item_payload(item: dict) -> dict:
 
 def build_enemy_from_payload(enemy_payload: dict, index: int) -> dict:
     payload = enemy_payload or {}
-    raw_id = str(payload.get("archetype_id") or payload.get("type") or payload.get("kind") or "").strip().lower()
-    archetype_id = ARCHETYPE_ALIASES.get(raw_id, raw_id)
+    archetype_id = _infer_archetype_id_from_payload(payload)
     archetype = ENEMY_ARCHETYPES.get(archetype_id, ENEMY_ARCHETYPES["thug_bandit"])
     level = _clamp_level(archetype, payload.get("level"))
 

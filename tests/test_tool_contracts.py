@@ -6,6 +6,7 @@ from services.currency.tools import CURRENCY_TOOL_DEFINITIONS
 from services.equipment.tools import EQUIPMENT_TOOL_DEFINITIONS
 from services.inventory.tools import INVENTORY_TOOL_DEFINITIONS
 from services.leveling.tools import LEVELING_TOOL_DEFINITIONS
+from services.lore.tools import LORE_TOOL_DEFINITIONS
 from services.merchants.tools import MERCHANT_TOOL_DEFINITIONS
 from services.resources.tools import RESOURCE_TOOL_DEFINITIONS
 from services.skills.tools import SKILL_TOOL_DEFINITIONS
@@ -84,6 +85,9 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
             "attributes": [
                 "add_attribute_xp",
             ],
+            "lore": [
+                "get_lore_context",
+            ],
             "skills": [
                 "get_skills",
                 "add_skill_xp",
@@ -106,6 +110,7 @@ class ToolDefinitionContractTestCase(unittest.TestCase):
             "resources": _tool_names(RESOURCE_TOOL_DEFINITIONS),
             "leveling": _tool_names(LEVELING_TOOL_DEFINITIONS),
             "attributes": _tool_names(ATTRIBUTE_TOOL_DEFINITIONS),
+            "lore": _tool_names(LORE_TOOL_DEFINITIONS),
             "skills": _tool_names(SKILL_TOOL_DEFINITIONS),
             "status_effects": _tool_names(STATUS_EFFECT_TOOL_DEFINITIONS),
         }
