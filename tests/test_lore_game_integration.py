@@ -5,11 +5,17 @@ from unittest.mock import Mock
 from services.lore.tools import LORE_TOOL_DEFINITIONS
 from services.prompt_builder.game_prompt_builder import build_game_system_prompt
 from services.tools.tool_handler import execute_normalized_tool, resolve_tool_calls
-from services.tools.turn_handler import run_game_turn
+from services.tools.turn_handler import run_game_turn, run_game_turn_stream
 
 
 def _fake_response(message):
     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def _fake_stream_chunk(text):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content=text))]
+    )
 
 
 def _make_test_character():
@@ -139,6 +145,8 @@ class LoreGameIntegrationTestCase(unittest.TestCase):
 
         self.assertIn("Lore/world knowledge question detected.", prompt)
         self.assertIn("Use get_lore_context before answering factual questions", prompt)
+        self.assertIn("Keep normal replies concise.", prompt)
+        self.assertIn("Do not restate those UI-visible values in normal narration.", prompt)
 
     def test_build_game_system_prompt_flags_distant_region_history_questions(self):
         prompt = build_game_system_prompt(
@@ -242,6 +250,97 @@ class LoreGameIntegrationTestCase(unittest.TestCase):
                 "location_id": "willowbrook",
             },
         )
+
+    def test_run_game_turn_stream_executes_lore_tool_before_streamed_narration(self):
+        first_message = SimpleNamespace(
+            content="",
+            tool_calls=[
+                SimpleNamespace(
+                    id="call_1",
+                    function=SimpleNamespace(
+                        name="get_lore_context",
+                        arguments='{"query_text":"Was weiÃŸ ich Ã¼ber Willowbrook?","location_id":"willowbrook"}',
+                    ),
+                )
+            ],
+        )
+        second_message = SimpleNamespace(
+            content="Willowbrook ist eine geschÃ¤ftige Marktstadt am Fluss.",
+            tool_calls=[],
+        )
+        responses = [
+            _fake_response(first_message),
+            _fake_response(second_message),
+            [
+                _fake_stream_chunk("Willowbrook ist eine geschÃ¤ftige "),
+                _fake_stream_chunk("Marktstadt am Fluss."),
+            ],
+        ]
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: responses.pop(0))
+            )
+        )
+        execute_lore_tool = Mock(return_value={
+            "success": True,
+            "tool": "get_lore_context",
+            "matches": [
+                {
+                    "title": "Willowbrook",
+                    "text": "A busy market town on the river.",
+                }
+            ],
+        })
+
+        result = "".join(run_game_turn_stream(
+            client=client,
+            model="test-model",
+            messages=[{"role": "user", "content": "Was weiÃŸ ich Ã¼ber Willowbrook?"}],
+            campaign_id=5,
+            active_character=_make_test_character(),
+            state_tool_definitions=[],
+            inventory_tool_definitions=[],
+            currency_tool_definitions=[],
+            merchant_tool_definitions=[],
+            trainer_tool_definitions=[],
+            equipment_tool_definitions=[],
+            resource_tool_definitions=[],
+            status_effect_tool_definitions=[],
+            leveling_tool_definitions=[],
+            lore_tool_definitions=LORE_TOOL_DEFINITIONS,
+            attribute_tool_definitions=[],
+            skill_tool_definitions=[],
+            execute_state_tool=None,
+            execute_inventory_tool=None,
+            execute_currency_tool=None,
+            execute_merchant_tool=None,
+            execute_trainer_tool=None,
+            execute_equipment_tool=None,
+            execute_resource_tool=None,
+            execute_status_effect_tool=None,
+            execute_leveling_tool=None,
+            execute_lore_tool=execute_lore_tool,
+            execute_attribute_tool=None,
+            execute_skill_tool=None,
+            resolve_tool_calls=resolve_tool_calls,
+            parse_tool_call_payload=lambda tool_call, index=0: (
+                tool_call.function.name,
+                {"query_text": "Was weiÃŸ ich Ã¼ber Willowbrook?", "location_id": "willowbrook"},
+                tool_call.id,
+                tool_call.function.arguments,
+            ),
+            normalize_tool_call=lambda tool_name, tool_args, active_character: (tool_name, tool_args),
+            execute_normalized_tool=execute_normalized_tool,
+            max_tool_rounds=2,
+            turn_id="turn-lore-stream-1",
+        ))
+
+        self.assertEqual(
+            "Willowbrook ist eine geschÃ¤ftige Marktstadt am Fluss.",
+            result,
+        )
+        execute_lore_tool.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -59,6 +59,7 @@ from services.tools import (
     normalize_tool_call,
     execute_normalized_tool,
     run_game_turn,
+    run_game_turn_stream,
 )
 
 logger = logging.getLogger(__name__)
@@ -398,6 +399,7 @@ def create_app() -> Flask:
         normalize_tool_call,
         execute_normalized_tool,
         run_game_turn,
+        run_game_turn_stream,
     )
 
     return app
