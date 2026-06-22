@@ -4,6 +4,7 @@ from flask import render_template, redirect, url_for, session, flash, jsonify
 
 from models import User, Character
 from data.character_presets import RACES, CLASSES
+from data.character_portraits import get_character_portrait_url
 
 from services.attributes import serialize_attributes
 from services.llm_service import check_provider_availability
@@ -95,6 +96,7 @@ def register_page_routes(
                     "name": character.name,
                     "race": character.race,
                     "class_name": character.class_name,
+                    "gender": character.gender or "male",
                     "level": character.level,
                     "xp": character.xp,
                     "level_progression": level_progression,
@@ -118,7 +120,12 @@ def register_page_routes(
                     "inventory": inventory_data["inventory"],
                     "inventory_summary": inventory_data["inventory_summary"],
                     "inventory_total_weight": inventory_data["total_weight"],
-                    "inventory_containers": inventory_data["containers"]
+                    "inventory_containers": inventory_data["containers"],
+                    "portrait_url": get_character_portrait_url(
+                        character.race,
+                        character.class_name,
+                        character.gender,
+                    ),
                 })
 
             community_users.append({

@@ -329,6 +329,13 @@ textarea {
     flex-shrink: 0;
 }
 
+.portrait-image {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    overflow: hidden;
+}
+
 .character-meta h2,
 .character-meta h3 {
     margin-top: 0;

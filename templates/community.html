@@ -25,12 +25,20 @@
                                 <article class="card character-entry compact-entry community-entry">
                                     <div class="character-entry-left">
                                         <div class="character-entry-portrait-column">
-                                            <div class="character-portrait">👤</div>
+                                            {% if character.portrait_url %}
+                                                <div
+                                                    class="character-portrait portrait-image"
+                                                    style="background-image: url('{{ character.portrait_url }}');"
+                                                    aria-label="Portrait of {{ character.name }}"
+                                                ></div>
+                                            {% else %}
+                                                <div class="character-portrait">👤</div>
+                                            {% endif %}
                                         </div>
 
                                         <div class="character-meta">
                                             <h2>{{ character.name }}</h2>
-                                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
+                                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }} · {{ character.gender|title }}</p>
                                             <div class="level-summary compact">
                                                 <div class="stat-row">
                                                     <span><strong>Level:</strong> {{ character.level }}</span>

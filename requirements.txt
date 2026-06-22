@@ -6,3 +6,4 @@ python-dotenv==1.2.2
 openai==2.31.0
 qdrant-client==1.18.0
 PyYAML==6.0.2
+Pillow==12.2.0

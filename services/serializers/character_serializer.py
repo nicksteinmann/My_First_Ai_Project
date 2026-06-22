@@ -8,6 +8,7 @@ state, not invent gameplay state.
 import json
 
 from models import CampaignLocation
+from data.character_portraits import get_character_portrait_url
 from services.attributes import serialize_attributes
 from services.equipment import build_item_bonus_lines, build_item_tooltip, get_defense_profile, get_effective_stats, serialize_equipment
 from services.inventory.service import get_inventory
@@ -538,6 +539,7 @@ def serialize_character(
         "name": character.name,
         "race": character.race,
         "class_name": character.class_name,
+        "gender": character.gender or "male",
         "level": character.level,
         "xp": character.xp,
         "level_progression": level_progression,
@@ -549,6 +551,11 @@ def serialize_character(
         "status_effect_summary": ", ".join(effect["name"] for effect in status_effects) if status_effects else "None",
         "currency": character.currency_json,
         "portrait": "👤",
+        "portrait_url": get_character_portrait_url(
+            character.race,
+            character.class_name,
+            character.gender,
+        ),
         "stats": {
             "hp": hp_current,
             "hp_max": hp_max,

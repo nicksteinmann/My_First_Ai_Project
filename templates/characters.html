@@ -41,6 +41,14 @@
             {% endfor %}
         </select>
 
+        <label for="gender">Gender</label>
+        <select id="gender" name="gender" required>
+            <option value="">Select a gender</option>
+            {% for gender_key, gender_data in genders.items() %}
+                <option value="{{ gender_key }}">{{ gender_data.label }}</option>
+            {% endfor %}
+        </select>
+
         <button class="btn" type="submit">Create Character</button>
     </form>
 </section>
@@ -58,7 +66,15 @@
                 <article class="card character-entry compact-entry">
                     <div class="character-entry-left">
                         <div class="character-entry-portrait-column">
-                            <div class="character-portrait">👤</div>
+                            {% if character.portrait_url %}
+                                <div
+                                    class="character-portrait portrait-image"
+                                    style="background-image: url('{{ character.portrait_url }}');"
+                                    aria-label="Portrait of {{ character.name }}"
+                                ></div>
+                            {% else %}
+                                <div class="character-portrait">👤</div>
+                            {% endif %}
 
                             <div class="entry-actions">
                                 <form method="POST" action="{{ url_for('select_character', character_id=character.id) }}">
@@ -80,7 +96,7 @@
                                     <span class="skill-chip active-chip">Active</span>
                                 {% endif %}
                             </h2>
-                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }}</p>
+                            <p><strong>{{ character.race }}</strong> · {{ character.class_name }} · {{ character.gender|title }}</p>
                             <div class="level-summary compact">
                                 <div class="stat-row">
                                     <span><strong>Level:</strong> {{ character.level }}</span>
