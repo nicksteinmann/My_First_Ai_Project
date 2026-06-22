@@ -37,13 +37,21 @@
         <div class="home-character-panel">
             <div class="home-character-header">
                 <div class="home-character-left">
-                    <div class="character-portrait">{{ active_character.portrait }}</div>
+                    {% if active_character.portrait_url %}
+                        <div
+                            class="character-portrait portrait-image"
+                            style="background-image: url('{{ active_character.portrait_url }}');"
+                            aria-label="Portrait of {{ active_character.name }}"
+                        ></div>
+                    {% else %}
+                        <div class="character-portrait">{{ active_character.portrait }}</div>
+                    {% endif %}
                     <a class="btn btn-small" href="{{ url_for('characters') }}">Switch Character</a>
                 </div>
 
                 <div class="home-character-middle">
                     <h2>{{ active_character.name }}</h2>
-                    <p><strong>{{ active_character.race }}</strong> · {{ active_character.class_name }}</p>
+                    <p><strong>{{ active_character.race }}</strong> · {{ active_character.class_name }} · {{ active_character.gender|title }}</p>
                     <div class="level-summary">
                         <div class="stat-row">
                             <span><strong>Level:</strong> <span id="character-level">{{ active_character.level }}</span></span>

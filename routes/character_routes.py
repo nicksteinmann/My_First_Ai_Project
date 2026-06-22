@@ -5,6 +5,11 @@ import json
 from flask import render_template, redirect, url_for, session, request, flash
 
 from data.character_presets import RACES, CLASSES
+from data.character_portraits import (
+    CHARACTER_GENDERS,
+    build_character_portrait_key,
+    get_character_portrait_url,
+)
 from models import (
     db,
     Character,
@@ -158,6 +163,7 @@ def register_character_routes(
                 "name": character.name,
                 "race": character.race,
                 "class_name": character.class_name,
+                "gender": character.gender or "male",
                 "level": character.level,
                 "xp": character.xp,
                 "level_progression": level_progression,
@@ -185,6 +191,11 @@ def register_character_routes(
                 "inventory_containers": inventory_data["containers"],
                 "attributes": serialized_attributes,
                 "skills": serialized_skills,
+                "portrait_url": get_character_portrait_url(
+                    character.race,
+                    character.class_name,
+                    character.gender,
+                ),
             })
 
         return render_template(
@@ -192,7 +203,8 @@ def register_character_routes(
             page_title="My Characters",
             characters=characters,
             races=RACES,
-            classes=CLASSES
+            classes=CLASSES,
+            genders=CHARACTER_GENDERS,
         )
 
     @app.route("/characters/create", methods=["POST"])
@@ -205,8 +217,9 @@ def register_character_routes(
         name = request.form.get("name", "").strip()
         race = request.form.get("race", "").strip()
         class_name = request.form.get("class_name", "").strip()
+        gender = request.form.get("gender", "").strip().lower()
 
-        if not name or not race or not class_name:
+        if not name or not race or not class_name or not gender:
             flash("Please fill in all character fields.", "error")
             return redirect(url_for("characters"))
 
@@ -216,6 +229,10 @@ def register_character_routes(
 
         if class_name not in CLASSES:
             flash("Invalid class selected.", "error")
+            return redirect(url_for("characters"))
+
+        if gender not in CHARACTER_GENDERS:
+            flash("Invalid gender selected.", "error")
             return redirect(url_for("characters"))
 
         base_attributes = {
@@ -251,8 +268,10 @@ def register_character_routes(
                 name=name,
                 race=race,
                 class_name=class_name,
+                gender=gender,
                 background="New adventurer",
                 description="A newly created hero",
+                portrait_key=build_character_portrait_key(race, class_name, gender),
                 level=1,
                 xp=0,
                 status="alive"

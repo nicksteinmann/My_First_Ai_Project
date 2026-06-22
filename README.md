@@ -145,6 +145,7 @@ The AI must not directly modify game state. Every state change must go through v
 
 ### Data
 
+- data/character_portraits.py
 - data/character_presets.py
 - data/enemies.json
 - data/items.json
@@ -166,11 +167,14 @@ The AI must not directly modify game state. Every state change must go through v
 
 - Persistent characters per user
 - Race and class presets
+- Gender selection for character creation
 - Attribute generation
 - Resource rows for HP, Mana, Energy, and Stamina
 - Character switching
 - Character deletion
 - Active character selection
+- Deterministic portrait keys per race / class / gender combination
+- Optional local portrait assets with safe UI fallback when an image is missing
 
 ### Campaign / Adventure State
 
@@ -259,6 +263,28 @@ Current limitations:
 - Player and assistant messages are stored per campaign
 - Recent story history is injected into each LLM turn
 - Campaign continuity is preserved across messages
+
+### Character Portraits
+
+Character presentation now includes backend-controlled gender metadata and portrait lookup.
+
+Implemented:
+
+- Character creation stores a validated `gender`
+- Portrait lookup is derived from deterministic race / class / gender keys instead of free text
+- UI surfaces now expose portrait images for:
+  - active character view
+  - character selection
+  - community listing
+- Safe fallback to the existing portrait placeholder when a file is missing, so the game remains playable without a full portrait set
+- Local portrait asset workflow:
+  - generated sheets can be cropped with `scripts/crop_character_portrait_sheet.py`
+  - final assets live under `static/character_portraits/`
+
+Current limitations:
+
+- Portraits are still a curated local asset set, not a player-upload system
+- Presentation polish for larger portrait sets and future asset-management tooling is still open
 
 ### Lore Retrieval / RAG
 

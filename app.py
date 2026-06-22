@@ -73,6 +73,20 @@ def ensure_sqlite_schema_compatibility() -> None:
     new columns to existing tables. This keeps local development databases
     usable until a real migration layer is introduced.
     """
+    character_columns = db.session.execute(text("PRAGMA table_info(characters)")).fetchall()
+    character_column_names = {column[1] for column in character_columns}
+    character_column_statements = {
+        "gender": (
+            "ALTER TABLE characters "
+            "ADD COLUMN gender VARCHAR(20) NOT NULL DEFAULT 'male'"
+        ),
+        "portrait_key": "ALTER TABLE characters ADD COLUMN portrait_key VARCHAR(120)",
+    }
+
+    for column_name, statement in character_column_statements.items():
+        if column_name not in character_column_names:
+            db.session.execute(text(statement))
+
     columns = db.session.execute(text("PRAGMA table_info(character_attributes)")).fetchall()
     column_names = {column[1] for column in columns}
 
